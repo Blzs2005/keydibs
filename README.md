@@ -9,14 +9,34 @@ compositor (KDE, Hyprland, Sway…) → terminal (Alacritty, Konsole…) → mul
 ```
 
 The first layer that has a binding for the chord calls dibs. Every binding further
-down for the same chord is dead, and nothing tells you. keydibs reads all those configs
-and tells you.
+down for the same chord is blocked, and nothing tells you. keydibs reads all those
+configs, plus each tool's built-in shortcuts, and tells you.
+
+For example, on a stock KDE setup with Konsole, fish and micro, nothing has been
+customized and there are already 20 clashes:
 
 ```console
-$ keydibs why ctrl+shift+c
-Ctrl+Shift+C
-  compositor  kde        takes it          Take Screenshot [kwin]  (~/.config/kglobalshortcutsrc:2)
-  terminal    alacritty  SHADOWED by kde   Copy  (~/.config/alacritty/alacritty.toml:82)
+$ keydibs check
+shadowed   Ctrl+Alt+H
+  fish "backward-kill-word" (built-in default)
+  is blocked by konsole "SSH Manager: Quick Access" (built-in default)
+
+shadowed   Shift+Right
+  micro "SelectRight" (built-in default)
+  is blocked by konsole "Next Tab (with 2+ tabs)" (built-in default)
+…
+20 conflicts in 534 bindings
+```
+
+`why` shows everything that wants one key combination, in the order a key press
+reaches them:
+
+```console
+$ keydibs why ctrl+alt+h
+Ctrl+Alt+H
+  terminal    konsole    takes it              SSH Manager: Quick Access  (built-in default)
+  shell       fish       SHADOWED by konsole   backward-kill-word  (built-in default)
+  app         micro      SHADOWED by konsole   DeleteWordLeft  (built-in default)
 ```
 
 It knows the rules each layer actually follows, so it doesn't cry wolf:
@@ -82,11 +102,19 @@ fish builds most of its keymap in code when a session starts, so keydibs asks fi
 itself: it runs `fish -i` with your config (minus the greeting) and reads `bind`.
 That's the same thing that happens when you open a new terminal.
 
+Built-in shortcuts are taken from each tool's source code for a specific version:
+Alacritty 0.17, Konsole 26.08 and micro 2.0.15. Other versions may differ slightly.
+
 ## Roadmap
 
-- **Built-in defaults** for every tool, as Alacritty already has. Most conflicts
-  involve bindings nobody wrote down, like a terminal's default `Ctrl+Shift+V`.
+- **Built-in defaults** for every tool, as Alacritty, Konsole and micro already have.
+  Most conflicts involve shortcuts nobody wrote down, like a terminal's default
+  `Ctrl+Shift+V`.
 - **Alacritty:** follow `general.import`, and support scancode bindings (`key = 123`).
+- **Konsole:** read the Quick Commands and SSH Manager quick-access shortcuts when
+  they're changed in those plugins' own settings, and KDE-wide changes to standard
+  shortcuts (`kdeglobals`).
+- **micro:** raw escape-sequence bindings (`"\u001b[1;5D"`) are skipped.
 - **Hyprland:** binds on raw keycodes (`code:28`) are skipped, since reading them
   needs the keyboard layout. Combos of plain keys (`Super_L + Alt_L`) show only their
   last key, because that's all `hyprctl` reports. Mouse binds are out of scope.
