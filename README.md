@@ -2,21 +2,48 @@
 
 Find keyboard shortcuts that clash between your desktop, terminal, shell and editor.
 
-When you press a key, every layer of your setup gets a chance to claim it, in order:
+## Why?
+
+You press a shortcut in your editor and nothing happens. Or something else happens.
+
+That's usually a **clash**. Your desktop, your terminal, your shell and your editor
+each have their own keyboard shortcuts, and when two of them use the same keys, the
+one that sees the key press first wins. The other shortcut silently stops working.
 
 ```
-compositor (KDE, Hyprland, Sway…) → terminal (Alacritty, Konsole…) → multiplexer (tmux) → shell (fish, zsh) → app (nvim, micro…)
+your key press → desktop → terminal → shell → editor
+                 (first)                      (last)
 ```
 
-The first layer that has a binding for the chord calls dibs. Every binding further
-down for the same chord is blocked, and nothing tells you. keydibs reads all those
-configs, plus each tool's built-in shortcuts, and tells you.
+keydibs reads the shortcuts of every tool you use, including the built-in ones
+nobody ever wrote down, and tells you which ones clash.
 
-For example, on a stock KDE setup with Konsole, fish and micro, nothing has been
-customized and there are already 20 clashes:
+## Try it
+
+```sh
+cargo install keydibs
+keydibs
+```
+
+That's it. There's nothing to set up: keydibs finds the tools you have, and it only
+**reads** your settings, never changes them.
+
+> You'll need Rust to install it. If `cargo` isn't found, get it from
+> [rustup.rs](https://rustup.rs). keydibs works on Linux.
+
+## Reading the results
+
+Here's what keydibs finds on a fresh CachyOS install (KDE, Alacritty, Konsole, fish
+and micro) before changing a single setting:
 
 ```console
-$ keydibs check
+$ keydibs
+scanned kde (compositor): 112 bindings
+scanned alacritty (terminal): 90 bindings
+scanned konsole (terminal): 77 bindings
+scanned fish (shell): 99 bindings
+scanned micro (app): 156 bindings
+
 shadowed   Ctrl+Alt+H
   fish "backward-kill-word" (built-in default)
   is blocked by konsole "SSH Manager: Quick Access" (built-in default)
@@ -28,8 +55,22 @@ shadowed   Shift+Right
 20 conflicts in 534 bindings
 ```
 
-`why` shows everything that wants one key combination, in the order a key press
-reaches them:
+The first lines show which tools keydibs found and how many shortcuts each has.
+After that, each clash reads like a sentence:
+
+- **`Ctrl+Alt+H`** is the key combination.
+- **fish** wants it to delete the previous word, but it never gets there, because
+  **Konsole** uses it first to open its SSH Manager.
+- **(built-in default)** means nobody configured this; it's how the tool ships.
+  When a shortcut comes from your own config, keydibs shows the file and line instead.
+
+Some clashes only happen sometimes, and keydibs says when. `Next Tab (with 2+ tabs)`
+means Konsole only takes `Shift+Right` while you have more than one tab open. With a
+single tab, micro gets it as usual.
+
+### Looking up one shortcut
+
+Wondering why a particular shortcut doesn't work? Ask about it:
 
 ```console
 $ keydibs why ctrl+alt+h
@@ -39,97 +80,103 @@ Ctrl+Alt+H
   app         micro      SHADOWED by konsole   DeleteWordLeft  (built-in default)
 ```
 
-It knows the rules each layer actually follows, so it doesn't cry wolf:
+This lists every tool that uses the key combination, in the order your key press
+reaches them, and which one actually gets it.
 
-- A terminal binding with Alacritty's `mode = "~Alt"` only takes the key outside
-  full-screen apps, so it shadows your shell's binding but not your editor's.
-- Bindings for a terminal's own modes (vi mode, search) never shadow anything.
-- Alacritty's `Ctrl+L` clears its notice *and* passes `^L` on, so your shell still gets it.
-- The shell and full-screen apps take turns rather than stacking, so a fish binding
-  never shadows a micro one.
-- Tools in the same layer (Alacritty and Konsole) are alternatives, not rivals.
-- Konsole's tab and split shortcuts are switched off until you have several tabs or
-  a split view, so conflicts with them say so: `Next Tab (with 2+ tabs)`.
+## Fixing a clash
 
-## Install
+Pick the shortcut you care about less, and change it in that tool:
 
-You need Rust 1.88 or newer ([rustup.rs](https://rustup.rs)). keydibs reads Linux
-desktop and terminal configs, so it's Linux-only for now.
+| Tool | Where to change shortcuts |
+|---|---|
+| KDE Plasma | System Settings → Keyboard → Shortcuts |
+| Konsole | Settings → Configure Keyboard Shortcuts (`Ctrl+Alt+,`) |
+| Alacritty | the `[keyboard]` section of `~/.config/alacritty/alacritty.toml` |
+| fish | a `bind` line in `~/.config/fish/config.fish` |
+| micro | `~/.config/micro/bindings.json` |
+| Hyprland | your Hyprland config |
 
-```sh
-cargo install keydibs
-```
+Then run `keydibs` again to check it's gone.
 
-Or the latest from `main`:
+## Commands
+
+| Command | What it does |
+|---|---|
+| `keydibs` | Same as `keydibs check` |
+| `keydibs check` | Lists every clash. Exits with code 1 if there are any, so you can use it in scripts |
+| `keydibs why <keys>` | Shows every tool that uses one key combination, and which one wins |
+| `keydibs list` | Lists every shortcut keydibs found |
+
+Key combinations aren't case-sensitive: `ctrl+shift+c`, `Ctrl+Shift+C` and
+`shift+ctrl+c` are all the same. `Meta` and `Super` both mean the Windows/logo key.
+
+## Supported tools
+
+| | Works now | Coming |
+|---|---|---|
+| **Desktop** | KDE Plasma, Hyprland | Sway, niri, GNOME |
+| **Terminal** | Alacritty, Konsole | kitty, WezTerm, foot, Ghostty |
+| **Terminal multiplexer** | | tmux, Zellij |
+| **Shell** | fish | zsh, bash |
+| **Editor** | micro | Neovim, Helix |
+
+Tools you don't have are skipped automatically.
+Missing one you use? [Each planned tool has an issue](https://github.com/Blzs2005/keydibs/issues?q=is%3Aissue+is%3Aopen+label%3Aadapter),
+and comments or help are welcome.
+
+<details>
+<summary><b>How keydibs avoids false alarms</b></summary>
+
+A shortcut only counts as blocked when the key really can't get through:
+
+- **Different screens.** Some terminal shortcuts only work at the shell prompt and
+  step aside inside full-screen programs like editors (Alacritty's `Shift+PageUp`,
+  for example). Those can block your shell, but not your editor.
+- **Special modes.** Shortcuts that only exist in a tool's own mode, like Alacritty's
+  vi mode or Konsole's search bar, never block anything.
+- **Shortcuts that pass the key on.** Alacritty's `Ctrl+L` clears its notice *and*
+  still sends `Ctrl+L` to your shell, so nothing is blocked.
+- **Taking turns.** Your shell and a full-screen editor never read keys at the same
+  time, so a fish shortcut can't block a micro one.
+- **Alternatives.** Alacritty and Konsole are two different terminals; you use one or
+  the other, so their shortcuts can't clash with each other.
+
+</details>
+
+<details>
+<summary><b>Good to know</b></summary>
+
+- **Built-in shortcuts** come from each tool's source code for a specific version:
+  Alacritty 0.17, Konsole 26.08 and micro 2.0.15. Other versions may differ slightly.
+- **fish** sets up most of its shortcuts when it starts, so keydibs starts fish (with
+  your config, minus the greeting) and asks it, just like opening a new terminal does.
+- **Hyprland** is read from the running desktop, so it has to be running. If it isn't,
+  it's skipped.
+- **Not covered yet:**
+  - Alacritty files pulled in with `general.import`
+  - Konsole plugin shortcuts changed in the plugins' own settings, and KDE-wide changes
+    to standard shortcuts
+  - Raw key codes and escape sequences in Alacritty, Hyprland, fish and micro
+  - Mouse bindings
+  - Keyboard layouts other than US for symbol keys: `Meta+~` and `Meta+Shift+`\`
+    are the same keys on a US layout, but keydibs treats them as different
+  - Key combinations your terminal can't send at all (like `Ctrl+;` in many
+    terminals), which no program can ever receive
+
+</details>
+
+## Contributing
+
+Adding support for a tool means writing one file. [CONTRIBUTING.md](CONTRIBUTING.md)
+walks you through it, and issues labeled
+[`good first issue`](https://github.com/Blzs2005/keydibs/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+are the easiest place to start.
+
+To install the latest unreleased version from `main`:
 
 ```sh
 cargo install --git https://github.com/Blzs2005/keydibs
 ```
-
-## Usage
-
-```sh
-keydibs              # same as `keydibs check`
-keydibs check        # report shadowed and duplicate bindings; exits 1 if any are found
-keydibs why <chord>  # every layer that binds a chord, in the order a key press reaches them
-keydibs list         # every binding keydibs found
-```
-
-Chords are case-insensitive: `ctrl+shift+c`, `Meta+E`, `super+escape`. `Meta` means
-the Super/logo key, as it does in KDE.
-
-## Supported tools
-
-| Layer | Tool | Status |
-|---|---|---|
-| compositor | KDE Plasma (`kglobalshortcutsrc`) | ✅ |
-| compositor | Hyprland (live keymap, any config format; submaps) | ✅ |
-| compositor | Sway, niri, GNOME | planned |
-| terminal | Alacritty (`alacritty.toml` + built-in defaults) | ✅ |
-| terminal | Konsole (built-in shortcuts + changes made in its settings) | ✅ |
-| terminal | kitty, wezterm, foot, ghostty | planned |
-| multiplexer | tmux, zellij | planned |
-| shell | fish (every mode, including vi bindings) | ✅ |
-| shell | zsh, bash (readline) | planned |
-| app | micro (`bindings.json` + built-in defaults, every pane) | ✅ |
-| app | nvim, helix | planned |
-
-Hyprland is configured in Lua since 0.55, where binds can come from loops and
-functions, so keydibs reads the live keymap with `hyprctl -j binds` instead of
-parsing the config. Hyprland has to be running; if it isn't, it's skipped quietly.
-
-fish builds most of its keymap in code when a session starts, so keydibs asks fish
-itself: it runs `fish -i` with your config (minus the greeting) and reads `bind`.
-That's the same thing that happens when you open a new terminal.
-
-Built-in shortcuts are taken from each tool's source code for a specific version:
-Alacritty 0.17, Konsole 26.08 and micro 2.0.15. Other versions may differ slightly.
-
-## Roadmap
-
-- **Built-in defaults** for every tool, as Alacritty, Konsole and micro already have.
-  Most conflicts involve shortcuts nobody wrote down, like a terminal's default
-  `Ctrl+Shift+V`.
-- **Alacritty:** follow `general.import`, and support scancode bindings (`key = 123`).
-- **Konsole:** read the Quick Commands and SSH Manager quick-access shortcuts when
-  they're changed in those plugins' own settings, and KDE-wide changes to standard
-  shortcuts (`kdeglobals`).
-- **micro:** raw escape-sequence bindings (`"\u001b[1;5D"`) are skipped.
-- **Hyprland:** binds on raw keycodes (`code:28`) are skipped, since reading them
-  needs the keyboard layout. Combos of plain keys (`Super_L + Alt_L`) show only their
-  last key, because that's all `hyprctl` reports. Mouse binds are out of scope.
-- **fish:** map raw escape-sequence bindings (`\e\[1\;9A`) to the keys they stand for;
-  they're skipped for now. Add a timeout in case a config hangs.
-- **Unreachable chords.** Many terminals can't send `Ctrl+Shift+letter` or `Ctrl+;`
-  as distinct keys unless they support the kitty keyboard protocol, so apps bound to
-  them never see them.
-- **Keyboard layouts.** `Meta+~` and `Meta+Shift+`\` are the same keys on a US layout.
-
-## Adding a tool
-
-Each tool is one file in `src/adapters/`. See [CONTRIBUTING.md](CONTRIBUTING.md) for a
-step-by-step guide, and the [`adapter` issues](https://github.com/Blzs2005/keydibs/issues?q=is%3Aissue+is%3Aopen+label%3Aadapter)
-for tools people want; the ones labeled `good first issue` are the easiest to start with.
 
 ## License
 
