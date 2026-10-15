@@ -1,0 +1,17 @@
+[package]
+name = "keydibs"
+version = "0.1.0"
+edition = "2024"
+description = "Find keybindings that never fire because another layer (compositor, terminal, shell, editor) grabs them first"
+license = "MIT"
+repository = "https://github.com/Blzs2005/keydibs"
+readme = "README.md"
+keywords = ["keybindings", "shortcuts", "kde", "terminal", "cli"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+anyhow = "1.0.104"
+bitflags = "2.13.2"
+clap = { version = "4.6.7", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.8"
