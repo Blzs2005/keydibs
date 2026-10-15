@@ -8,7 +8,7 @@ use keydibs::{Binding, Chord, Source, adapters};
 #[derive(Parser)]
 #[command(
     version,
-    about = "Find keybindings that never fire because another layer grabs them first"
+    about = "Find keyboard shortcuts that clash between your desktop, terminal, shell and editor"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -71,7 +71,7 @@ fn check(bindings: &[Binding]) -> ExitCode {
     for c in &conflicts {
         match c {
             Conflict::Shadowed { winner, loser } => println!(
-                "shadowed   {}\n  {} \"{}\" ({}) never fires:\n  {} \"{}\" ({}) grabs {} first\n",
+                "shadowed   {}\n  {} \"{}\" ({})\n  is blocked by {} \"{}\" ({})\n",
                 loser.keys(),
                 loser.tool,
                 loser.describe(),
@@ -79,7 +79,6 @@ fn check(bindings: &[Binding]) -> ExitCode {
                 winner.tool,
                 winner.describe(),
                 source(&winner.source),
-                winner.chord,
             ),
             Conflict::Duplicate { first, second } => println!(
                 "duplicate  {}\n  {} binds it to \"{}\" ({})\n  and to \"{}\" ({})\n",

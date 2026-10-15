@@ -9,6 +9,8 @@ pub mod alacritty;
 pub mod fish;
 pub mod hyprland;
 pub mod kde;
+pub mod konsole;
+pub mod micro;
 
 pub trait Adapter {
     fn tool(&self) -> &'static str;
@@ -22,7 +24,9 @@ pub fn all() -> Vec<Box<dyn Adapter>> {
         Box::new(kde::Kde),
         Box::new(hyprland::Hyprland),
         Box::new(alacritty::Alacritty),
+        Box::new(konsole::Konsole),
         Box::new(fish::Fish),
+        Box::new(micro::Micro),
     ]
 }
 
@@ -30,6 +34,14 @@ pub fn all() -> Vec<Box<dyn Adapter>> {
 pub(crate) fn on_path(name: &str) -> bool {
     std::env::var_os("PATH")
         .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
+}
+
+/// `$XDG_DATA_HOME`, falling back to `~/.local/share`.
+pub(crate) fn data_home() -> Option<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
 }
 
 /// `$XDG_CONFIG_HOME`, falling back to `~/.config`.

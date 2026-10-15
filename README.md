@@ -1,6 +1,6 @@
 # keydibs
 
-Find keybindings that never fire because another layer grabs them first.
+Find keyboard shortcuts that clash between your desktop, terminal, shell and editor.
 
 When you press a key, every layer of your setup gets a chance to claim it, in order:
 
@@ -28,6 +28,8 @@ It knows the rules each layer actually follows, so it doesn't cry wolf:
 - The shell and full-screen apps take turns rather than stacking, so a fish binding
   never shadows a micro one.
 - Tools in the same layer (Alacritty and Konsole) are alternatives, not rivals.
+- Konsole's tab and split shortcuts are switched off until you have several tabs or
+  a split view, so conflicts with them say so: `Next Tab (with 2+ tabs)`.
 
 ## Install
 
@@ -64,11 +66,13 @@ the Super/logo key, as it does in KDE.
 | compositor | Hyprland (live keymap, any config format; submaps) | ✅ |
 | compositor | Sway, niri, GNOME | planned |
 | terminal | Alacritty (`alacritty.toml` + built-in defaults) | ✅ |
-| terminal | Konsole, kitty, wezterm, foot, ghostty | planned |
+| terminal | Konsole (built-in shortcuts + changes made in its settings) | ✅ |
+| terminal | kitty, wezterm, foot, ghostty | planned |
 | multiplexer | tmux, zellij | planned |
 | shell | fish (every mode, including vi bindings) | ✅ |
 | shell | zsh, bash (readline) | planned |
-| app | micro, nvim, helix | planned |
+| app | micro (`bindings.json` + built-in defaults, every pane) | ✅ |
+| app | nvim, helix | planned |
 
 Hyprland is configured in Lua since 0.55, where binds can come from loops and
 functions, so keydibs reads the live keymap with `hyprctl -j binds` instead of

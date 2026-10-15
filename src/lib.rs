@@ -1,4 +1,4 @@
-//! keydibs: find keybindings that never fire because another layer grabs them first.
+//! keydibs: find keyboard shortcuts that clash between your desktop, terminal, shell and editor.
 //!
 //! A key press travels down a chain of layers (compositor, terminal, multiplexer,
 //! shell, app). The first layer with a binding for the chord takes it, and every

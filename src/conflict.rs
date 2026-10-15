@@ -5,7 +5,7 @@ use crate::chord::Chord;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Conflict<'a> {
-    /// `loser` never fires because `winner`, in a layer above it, grabs the chord first.
+    /// `loser` is blocked: `winner`, in a layer above it, grabs the chord first.
     Shadowed {
         winner: &'a Binding,
         loser: &'a Binding,
