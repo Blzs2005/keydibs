@@ -29,13 +29,28 @@ It knows the rules each layer actually follows, so it doesn't cry wolf:
   never shadows a micro one.
 - Tools in the same layer (Alacritty and Konsole) are alternatives, not rivals.
 
+## Install
+
+You need Rust 1.88 or newer ([rustup.rs](https://rustup.rs)). keydibs reads Linux
+desktop and terminal configs, so it's Linux-only for now.
+
+```sh
+cargo install keydibs
+```
+
+Or the latest from `main`:
+
+```sh
+cargo install --git https://github.com/Blzs2005/keydibs
+```
+
 ## Usage
 
 ```sh
-keydibs            # same as `keydibs check`
-keydibs check      # report shadowed and duplicate bindings; exits 1 if any are found
+keydibs              # same as `keydibs check`
+keydibs check        # report shadowed and duplicate bindings; exits 1 if any are found
 keydibs why <chord>  # every layer that binds a chord, in the order a key press reaches them
-keydibs list       # every binding keydibs found
+keydibs list         # every binding keydibs found
 ```
 
 Chords are case-insensitive: `ctrl+shift+c`, `Meta+E`, `super+escape`. `Meta` means
