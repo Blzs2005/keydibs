@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
 
-use super::{Adapter, on_path};
+use super::{Adapter, on_path, shorten};
 use crate::binding::{Binding, Grabs, Layer, Source};
 use crate::chord::{Chord, Key, Mods};
 
@@ -20,9 +20,6 @@ const TOOL: &str = "fish";
 /// Runs the interactive setup without the greeting (which may launch something
 /// like fastfetch), then lists every binding in every mode.
 const SCRIPT: &str = "function fish_greeting; end; __fish_config_interactive >/dev/null 2>&1; bind";
-
-/// Long inline commands get cut to this many characters in the output.
-const MAX_ACTION_LEN: usize = 60;
 
 pub struct Fish;
 
@@ -298,18 +295,10 @@ fn strip_ansi(line: &str) -> String {
     out
 }
 
-fn shorten(action: &str) -> String {
-    if action.chars().count() <= MAX_ACTION_LEN {
-        action.to_string()
-    } else {
-        let cut: String = action.chars().take(MAX_ACTION_LEN - 1).collect();
-        format!("{}…", cut.trim_end())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::MAX_ACTION_LEN;
 
     /// Trimmed from real `bind` output on CachyOS, with the autopair plugin.
     const SAMPLE: &str = r#"bind --preset '' self-insert

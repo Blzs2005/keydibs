@@ -68,6 +68,8 @@ impl Key {
             "slash" => "/",
             "backslash" => "\\",
             "apostrophe" => "'",
+            "bracketleft" => "[",
+            "bracketright" => "]",
             other => other,
         };
         Some(Key(canonical.to_string()))

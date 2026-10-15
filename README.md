@@ -61,13 +61,18 @@ the Super/logo key, as it does in KDE.
 | Layer | Tool | Status |
 |---|---|---|
 | compositor | KDE Plasma (`kglobalshortcutsrc`) | ✅ |
-| compositor | Hyprland, Sway, niri, GNOME | planned |
+| compositor | Hyprland (live keymap, any config format; submaps) | ✅ |
+| compositor | Sway, niri, GNOME | planned |
 | terminal | Alacritty (`alacritty.toml` + built-in defaults) | ✅ |
 | terminal | Konsole, kitty, wezterm, foot, ghostty | planned |
 | multiplexer | tmux, zellij | planned |
 | shell | fish (every mode, including vi bindings) | ✅ |
 | shell | zsh, bash (readline) | planned |
 | app | micro, nvim, helix | planned |
+
+Hyprland is configured in Lua since 0.55, where binds can come from loops and
+functions, so keydibs reads the live keymap with `hyprctl -j binds` instead of
+parsing the config. Hyprland has to be running; if it isn't, it's skipped quietly.
 
 fish builds most of its keymap in code when a session starts, so keydibs asks fish
 itself: it runs `fish -i` with your config (minus the greeting) and reads `bind`.
@@ -78,6 +83,9 @@ That's the same thing that happens when you open a new terminal.
 - **Built-in defaults** for every tool, as Alacritty already has. Most conflicts
   involve bindings nobody wrote down, like a terminal's default `Ctrl+Shift+V`.
 - **Alacritty:** follow `general.import`, and support scancode bindings (`key = 123`).
+- **Hyprland:** binds on raw keycodes (`code:28`) are skipped, since reading them
+  needs the keyboard layout. Combos of plain keys (`Super_L + Alt_L`) show only their
+  last key, because that's all `hyprctl` reports. Mouse binds are out of scope.
 - **fish:** map raw escape-sequence bindings (`\e\[1\;9A`) to the keys they stand for;
   they're skipped for now. Add a timeout in case a config hangs.
 - **Unreachable chords.** Many terminals can't send `Ctrl+Shift+letter` or `Ctrl+;`
