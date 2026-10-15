@@ -95,10 +95,9 @@ That's the same thing that happens when you open a new terminal.
 
 ## Adding a tool
 
-Each tool is one file in `src/adapters/` that implements `Adapter`: find the config,
-parse it into `Binding`s with a `Chord`, a human-readable action, and a source line.
-Keep the parser a pure function over the file's text so it can be tested with a
-fixture, like `src/adapters/kde.rs`.
+Each tool is one file in `src/adapters/`. See [CONTRIBUTING.md](CONTRIBUTING.md) for a
+step-by-step guide, and the [`adapter` issues](https://github.com/Blzs2005/keydibs/issues?q=is%3Aissue+is%3Aopen+label%3Aadapter)
+for tools people want; the ones labeled `good first issue` are the easiest to start with.
 
 ## License
 
