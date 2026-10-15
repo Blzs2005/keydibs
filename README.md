@@ -34,7 +34,7 @@ That's it. There's nothing to set up: keydibs finds the tools you have, and it o
 ## Reading the results
 
 Here's what keydibs finds on a fresh CachyOS install (KDE, Alacritty, Konsole, fish
-and micro) before changing a single setting:
+and micro, with a Hungarian keyboard) before changing a single setting:
 
 ```console
 $ keydibs
@@ -43,6 +43,7 @@ scanned alacritty (terminal): 90 bindings
 scanned konsole (terminal): 77 bindings
 scanned fish (shell): 99 bindings
 scanned micro (app): 156 bindings
+keyboard layout: hu
 
 shadowed   Ctrl+Alt+H
   fish "backward-kill-word" (built-in default)
@@ -52,11 +53,11 @@ shadowed   Shift+Right
   micro "SelectRight" (built-in default)
   is blocked by konsole "Next Tab (with 2+ tabs)" (built-in default)
 …
-20 conflicts in 534 bindings
+21 conflicts in 534 bindings
 ```
 
-The first lines show which tools keydibs found and how many shortcuts each has.
-After that, each clash reads like a sentence:
+The first lines show which tools keydibs found, how many shortcuts each has, and
+your keyboard layout. After that, each clash reads like a sentence:
 
 - **`Ctrl+Alt+H`** is the key combination.
 - **fish** wants it to delete the previous word, but it never gets there, because
@@ -67,6 +68,36 @@ After that, each clash reads like a sentence:
 Some clashes only happen sometimes, and keydibs says when. `Next Tab (with 2+ tabs)`
 means Konsole only takes `Shift+Right` while you have more than one tab open. With a
 single tab, micro gets it as usual.
+
+### Shortcuts that can't arrive
+
+Some key combinations can't get through a terminal at all. Most terminals send
+`Ctrl+Shift+S` exactly like `Ctrl+S`, `Shift+Enter` like `Enter`, and don't pass
+Super on, so a shell or editor bound to one of those never sees it:
+
+```console
+can't arrive Ctrl+Shift+S
+  micro "SaveAll" (~/.config/micro/bindings.json:2)
+  alacritty and konsole send it as Ctrl+S, because micro doesn't use the kitty keyboard protocol
+```
+
+The *kitty keyboard protocol* fixes this, but only when the terminal supports it
+**and** the program turns it on. keydibs knows which of your tools do (Alacritty,
+Konsole and fish do; micro doesn't), and only reports what really can't arrive.
+
+### Your keyboard layout
+
+On a Hungarian keyboard, `(` is Shift+8; on a US one it's Shift+9. Tools write such
+shortcuts either way (`Ctrl+(` or `Ctrl+Shift+8`), so keydibs checks your layout and
+compares the keys you actually press. That's why it shows `Ctrl+(` as
+`Ctrl+Shift+8` on a Hungarian layout, and why it finds clashes like this one, which
+only exist on layouts where `/` needs Shift:
+
+```console
+shadowed   Ctrl+Shift+6
+  fish "undo" (built-in default)
+  is blocked by konsole "Copy Input to None" (built-in default)
+```
 
 ### Looking up one shortcut
 
@@ -103,7 +134,7 @@ Then run `keydibs` again to check it's gone.
 | Command | What it does |
 |---|---|
 | `keydibs` | Same as `keydibs check` |
-| `keydibs check` | Lists every clash. Exits with code 1 if there are any, so you can use it in scripts |
+| `keydibs check` | Lists every clash and every shortcut that can't arrive. Exits with code 1 if there are any, so you can use it in scripts |
 | `keydibs why <keys>` | Shows every tool that uses one key combination, and which one wins |
 | `keydibs list` | Lists every shortcut keydibs found |
 
@@ -147,21 +178,19 @@ A shortcut only counts as blocked when the key really can't get through:
 <summary><b>Good to know</b></summary>
 
 - **Built-in shortcuts** come from each tool's source code for a specific version:
-  Alacritty 0.17, Konsole 26.08 and micro 2.0.15. Other versions may differ slightly.
+  Alacritty 0.17, Konsole 26.08 and micro 2.0.15. If you have a different version,
+  keydibs says so, since a few shortcuts may differ.
 - **fish** sets up most of its shortcuts when it starts, so keydibs starts fish (with
   your config, minus the greeting) and asks it, just like opening a new terminal does.
+  If a tool takes more than 5 seconds to answer, keydibs skips it rather than hang.
 - **Hyprland** is read from the running desktop, so it has to be running. If it isn't,
   it's skipped.
+- **Your keyboard layout** is read with libxkbcommon, which every Linux desktop has.
+  If it's missing, symbols are compared as written. Symbols typed with AltGr aren't
+  matched yet.
 - **Not covered yet:**
-  - Alacritty files pulled in with `general.import`
-  - Konsole plugin shortcuts changed in the plugins' own settings, and KDE-wide changes
-    to standard shortcuts
-  - Raw key codes and escape sequences in Alacritty, Hyprland, fish and micro
+  - Raw key codes (Alacritty `key = 123`, Hyprland `code:28`)
   - Mouse bindings
-  - Keyboard layouts other than US for symbol keys: `Meta+~` and `Meta+Shift+`\`
-    are the same keys on a US layout, but keydibs treats them as different
-  - Key combinations your terminal can't send at all (like `Ctrl+;` in many
-    terminals), which no program can ever receive
 
 </details>
 

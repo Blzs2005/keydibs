@@ -3,7 +3,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use keydibs::conflict::{self, Conflict};
-use keydibs::{Binding, Chord, Source, adapters};
+use keydibs::layout::Layout;
+use keydibs::{Binding, Chord, Layer, Source, adapters, reach};
 
 #[derive(Parser)]
 #[command(
@@ -30,23 +31,58 @@ enum Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let bindings = load_all();
+    let mut found = load_all();
+    let layout = match Layout::load() {
+        Ok(layout) => {
+            let name = if layout.name.is_empty() {
+                "default"
+            } else {
+                &layout.name
+            };
+            eprintln!("keyboard layout: {name}");
+            for binding in &mut found.bindings {
+                layout.normalize_binding(binding);
+            }
+            Some(layout)
+        }
+        Err(e) => {
+            eprintln!("note: {e}");
+            None
+        }
+    };
+    eprintln!();
 
     match cli.command.unwrap_or(Command::Check) {
-        Command::Check => check(&bindings),
+        Command::Check => check(&found),
         Command::Why { chord } => {
-            why(&bindings, &chord);
+            let chord = match &layout {
+                Some(layout) => layout.normalize(&chord),
+                None => chord,
+            };
+            why(&found.bindings, &chord);
             ExitCode::SUCCESS
         }
         Command::List => {
-            list(&bindings);
+            list(&found.bindings);
             ExitCode::SUCCESS
         }
     }
 }
 
-fn load_all() -> Vec<Binding> {
-    let mut all = Vec::new();
+/// What was found on this machine.
+struct Found {
+    bindings: Vec<Binding>,
+    terminals: Vec<reach::Terminal>,
+    /// Shells and apps that turn on the kitty keyboard protocol.
+    kitty_programs: Vec<&'static str>,
+}
+
+fn load_all() -> Found {
+    let mut found = Found {
+        bindings: Vec::new(),
+        terminals: Vec::new(),
+        kitty_programs: Vec::new(),
+    };
     for adapter in adapters::all() {
         match adapter.load() {
             Ok(Some(bindings)) => {
@@ -56,17 +92,29 @@ fn load_all() -> Vec<Binding> {
                     adapter.layer(),
                     bindings.len()
                 );
-                all.extend(bindings);
+                for note in adapter.notes() {
+                    eprintln!("  note: {note}");
+                }
+                match adapter.layer() {
+                    Layer::Terminal => found.terminals.push(reach::Terminal {
+                        tool: adapter.tool(),
+                        kitty_keyboard: adapter.kitty_keyboard(),
+                    }),
+                    Layer::Compositor => {}
+                    _ if adapter.kitty_keyboard() => found.kitty_programs.push(adapter.tool()),
+                    _ => {}
+                }
+                found.bindings.extend(bindings);
             }
             Ok(None) => {}
             Err(e) => eprintln!("warning: skipping {}: {e:#}", adapter.tool()),
         }
     }
-    eprintln!();
-    all
+    found
 }
 
-fn check(bindings: &[Binding]) -> ExitCode {
+fn check(found: &Found) -> ExitCode {
+    let bindings = &found.bindings;
     let conflicts = conflict::find(bindings);
     for c in &conflicts {
         match c {
@@ -92,17 +140,64 @@ fn check(bindings: &[Binding]) -> ExitCode {
         }
     }
 
-    if conflicts.is_empty() {
+    let unreachable = reach::unreachable(bindings, &found.terminals, &found.kitty_programs);
+    for u in &unreachable {
+        println!(
+            "can't arrive {}\n  {} \"{}\" ({})\n  {}\n",
+            u.binding.keys(),
+            u.binding.tool,
+            u.binding.describe(),
+            source(&u.binding.source),
+            explain(u),
+        );
+    }
+
+    let mut problems = Vec::new();
+    if !conflicts.is_empty() {
+        problems.push(plural(conflicts.len(), "conflict", "conflicts"));
+    }
+    if !unreachable.is_empty() {
+        problems.push(plural(
+            unreachable.len(),
+            "shortcut that can't arrive",
+            "shortcuts that can't arrive",
+        ));
+    }
+    if problems.is_empty() {
         println!("no conflicts in {} bindings", bindings.len());
         ExitCode::SUCCESS
     } else {
-        println!(
-            "{} conflicts in {} bindings",
-            conflicts.len(),
-            bindings.len()
-        );
+        println!("{} in {} bindings", problems.join(" and "), bindings.len());
         ExitCode::FAILURE
     }
+}
+
+/// Why a shortcut can't arrive, in the terms of the terminals that were found.
+fn explain(u: &reach::Unreachable) -> String {
+    let list = |tools: &[&str]| tools.join(" and ");
+    let sends = |tools: &[&str]| match tools {
+        [] => "terminals send".to_string(),
+        [one] => format!("{one} sends"),
+        many => format!("{} send", list(many)),
+    };
+    let sent = format!("{} it as {}", sends(&u.fails_in), u.sent_as);
+    if !u.program_asks {
+        format!(
+            "{sent}, because {} doesn't use the kitty keyboard protocol",
+            u.binding.tool
+        )
+    } else if u.works_in.is_empty() {
+        format!("{sent}; it needs a terminal with the kitty keyboard protocol")
+    } else {
+        format!(
+            "{sent}; it only arrives in {}, which has the kitty keyboard protocol",
+            list(&u.works_in)
+        )
+    }
+}
+
+fn plural(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
 }
 
 fn why(bindings: &[Binding], chord: &Chord) {

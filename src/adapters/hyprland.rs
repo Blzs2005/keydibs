@@ -7,12 +7,12 @@
 //!
 //! Skipped: mouse binds, binds on raw keycodes (`code:28`), and `catchall`.
 
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use anyhow::{Context, bail};
 use serde::Deserialize;
 
-use super::{Adapter, on_path, shorten};
+use super::{Adapter, COMMAND_TIMEOUT, on_path, run, shorten};
 use crate::binding::{Binding, Grabs, Layer, Source};
 use crate::chord::{Chord, Key, Mods};
 
@@ -48,11 +48,7 @@ impl Adapter for Hyprland {
         if !in_session {
             command.args(["--instance", "0"]);
         }
-        let output = command
-            .arg("binds")
-            .stdin(Stdio::null())
-            .output()
-            .context("running hyprctl")?;
+        let output = run(command.arg("binds"), COMMAND_TIMEOUT).context("running hyprctl")?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         match parse(&stdout) {

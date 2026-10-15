@@ -10,17 +10,18 @@
 //! the action's name. Find Next/Previous only work while the search bar is
 //! open, so they live in a `search` mode.
 //!
-//! Not read: the quick-access shortcuts of the Quick Commands and SSH Manager
-//! plugins when changed in the plugins' own settings, and KDE-wide overrides of
-//! standard shortcuts in `kdeglobals`.
+//! Also read, before those: KDE-wide changes to standard shortcuts in
+//! `kdeglobals`, which apply to the few actions that keep KDE's standard shortcut,
+//! and the quick-access shortcuts the Quick Commands and SSH Manager plugins
+//! save in their own settings file.
 
 use std::fs;
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use super::{Adapter, data_home, on_path};
+use super::{Adapter, config_home, data_home, on_path, second_word, version_note};
 use crate::binding::{Binding, Grabs, Layer, Source};
 use crate::chord::Chord;
 
@@ -34,6 +35,9 @@ enum Needs {
     SplitView,
     Searching,
 }
+
+/// The Konsole version [`DEFAULTS`] comes from.
+const DEFAULTS_VERSION: &str = "26.08";
 
 /// Konsole 26.08's defaults on Linux, where its `ACCEL` modifier is Ctrl+Shift.
 /// From `MainWindow.cpp`, `ViewManager.cpp`, `session/SessionController.cpp`,
@@ -454,7 +458,27 @@ const DEFAULTS: &[(&str, &str, &[&str], Needs)] = &[
 ];
 
 /// The KXMLGUI files Konsole saves changed shortcuts to.
-const OVERRIDE_FILES: &[&str] = &["konsoleui.rc", "sessionui.rc"];
+const KXMLGUI_FILES: &[&str] = &["konsoleui.rc", "sessionui.rc"];
+
+/// Konsole's actions that keep KDE's standard shortcut, which can be changed
+/// KDE-wide in `kdeglobals` (`[Shortcuts]`, by its KStandardShortcut name).
+/// Konsole sets its own default for its other standard actions, like Copy.
+const STANDARD_SHORTCUTS: &[(&str, &str)] = &[
+    ("SaveAs", "file_save_as"),
+    ("KeyBindings", "options_configure_keybinding"),
+    ("Preferences", "options_configure"),
+    ("WhatsThis", "help_whats_this"),
+];
+
+/// Where the plugins save their settings: Qt's default `QSettings` file, which
+/// is named after Konsole's organization domain (`kde.org`) and app name.
+const PLUGIN_SETTINGS: &str = "kde.org/konsole.conf";
+
+/// The plugins' quick-access shortcuts, as keys in `[plugins]` of that file.
+const PLUGIN_SHORTCUTS: &[(&str, &str)] = &[
+    ("quickcommands\\shortcut", "quick-commands-access"),
+    ("sshplugin\\ssh_shortcut", "ssh-manager-access"),
+];
 
 pub struct Konsole;
 
@@ -467,28 +491,74 @@ impl Adapter for Konsole {
         Layer::Terminal
     }
 
+    /// Konsole 26.08 supports it, and has it on by default.
+    fn kitty_keyboard(&self) -> bool {
+        true
+    }
+
+    fn notes(&self) -> Vec<String> {
+        version_note(
+            "Konsole",
+            TOOL,
+            &["--version"],
+            DEFAULTS_VERSION,
+            second_word,
+        )
+        .into_iter()
+        .collect()
+    }
+
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>> {
-        let dir = data_home().map(|dir| dir.join("kxmlgui5/konsole"));
-        let mut overrides = Vec::new();
-        for name in OVERRIDE_FILES {
-            let Some(path) = dir.as_ref().map(|dir| dir.join(name)) else {
-                continue;
-            };
-            match fs::read_to_string(&path) {
-                Ok(text) => overrides.push((text, path)),
-                Err(e) if e.kind() == ErrorKind::NotFound => {}
-                Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        let gui_dir = data_home().map(|dir| dir.join("kxmlgui5/konsole"));
+        let mut kxmlgui = Vec::new();
+        for name in KXMLGUI_FILES {
+            if let Some(file) = read(gui_dir.as_ref().map(|dir| dir.join(name)))? {
+                kxmlgui.push(file);
             }
         }
-        if overrides.is_empty() && !on_path(TOOL) {
+        // kdeglobals exists on any KDE system, so it doesn't mean Konsole is set up.
+        if kxmlgui.is_empty() && !on_path(TOOL) {
             return Ok(None);
         }
-        let overrides: Vec<(&str, &Path)> = overrides
-            .iter()
-            .map(|(text, path)| (text.as_str(), path.as_path()))
-            .collect();
-        Ok(Some(bindings(&overrides)))
+        let kdeglobals = read(config_home().map(|dir| dir.join("kdeglobals")))?;
+        let plugin_settings = read(config_home().map(|dir| dir.join(PLUGIN_SETTINGS)))?;
+
+        Ok(Some(bindings(&Sources {
+            kdeglobals: borrowed(&kdeglobals),
+            plugin_settings: borrowed(&plugin_settings),
+            kxmlgui: kxmlgui
+                .iter()
+                .map(|(text, path)| (text.as_str(), path.as_path()))
+                .collect(),
+        })))
     }
+}
+
+fn borrowed(file: &Option<(String, PathBuf)>) -> Option<(&str, &Path)> {
+    file.as_ref()
+        .map(|(text, path)| (text.as_str(), path.as_path()))
+}
+
+/// Reads a file that may not exist.
+fn read(path: Option<PathBuf>) -> anyhow::Result<Option<(String, PathBuf)>> {
+    let Some(path) = path else { return Ok(None) };
+    match fs::read_to_string(&path) {
+        Ok(text) => Ok(Some((text, path))),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+/// Where Konsole's settings for shortcuts come from, besides its built-in
+/// defaults: each file's text and path.
+#[derive(Default)]
+pub struct Sources<'a> {
+    /// `kdeglobals`: KDE-wide changes to standard shortcuts.
+    pub kdeglobals: Option<(&'a str, &'a Path)>,
+    /// The plugins' own settings, where their quick-access shortcuts are saved.
+    pub plugin_settings: Option<(&'a str, &'a Path)>,
+    /// `konsoleui.rc` and `sessionui.rc`: changes made in Konsole's shortcut settings.
+    pub kxmlgui: Vec<(&'a str, &'a Path)>,
 }
 
 /// One action and its current shortcuts.
@@ -500,9 +570,17 @@ struct Action {
     source: Source,
 }
 
-/// Konsole's effective shortcuts: the defaults with each override file (its
-/// text and path) applied on top.
-pub fn bindings(overrides: &[(&str, &Path)]) -> Vec<Binding> {
+impl Action {
+    fn set(&mut self, shortcuts: Vec<String>, source: Source) {
+        self.shortcuts = shortcuts;
+        self.source = source;
+    }
+}
+
+/// Konsole's effective shortcuts: the defaults, then KDE-wide standard
+/// shortcuts, the plugins' settings, and Konsole's own shortcut settings, in
+/// the order Konsole applies them.
+pub fn bindings(sources: &Sources) -> Vec<Binding> {
     let mut actions: Vec<Action> = DEFAULTS
         .iter()
         .map(|&(id, label, shortcuts, needs)| Action {
@@ -513,19 +591,38 @@ pub fn bindings(overrides: &[(&str, &Path)]) -> Vec<Binding> {
             source: Source::Default,
         })
         .collect();
+    let find = |actions: &mut Vec<Action>, id: &str| actions.iter().position(|a| a.id == id);
 
-    for (text, path) in overrides {
-        for (id, shortcut, line) in action_overrides(text) {
-            let source = Source::Config {
-                path: path.to_path_buf(),
-                line: Some(line),
+    if let Some((text, path)) = sources.kdeglobals {
+        for (key, value, line) in ini_entries(text, "Shortcuts") {
+            let Some(&(_, id)) = STANDARD_SHORTCUTS.iter().find(|(name, _)| *name == key) else {
+                continue;
             };
+            if let Some(i) = find(&mut actions, id) {
+                actions[i].set(split_shortcuts(value), config_source(path, line));
+            }
+        }
+    }
+
+    if let Some((text, path)) = sources.plugin_settings {
+        for (key, value, line) in ini_entries(text, "plugins") {
+            let Some(&(_, id)) = PLUGIN_SHORTCUTS.iter().find(|(name, _)| *name == key) else {
+                continue;
+            };
+            if let Some(i) = find(&mut actions, id) {
+                // Qt quotes values with commas in them: `"Ctrl+,"`.
+                let value = value.trim_matches('"');
+                actions[i].set(split_shortcuts(value), config_source(path, line));
+            }
+        }
+    }
+
+    for (text, path) in &sources.kxmlgui {
+        for (id, shortcut, line) in action_overrides(text) {
+            let source = config_source(path, line);
             let shortcuts = split_shortcuts(&shortcut);
-            match actions.iter_mut().find(|a| a.id == id) {
-                Some(action) => {
-                    action.shortcuts = shortcuts;
-                    action.source = source;
-                }
+            match find(&mut actions, &id) {
+                Some(i) => actions[i].set(shortcuts, source),
                 // An action without a default shortcut that was given one.
                 None => actions.push(Action {
                     label: id.clone(),
@@ -573,6 +670,31 @@ fn label(action: &Action) -> String {
 }
 
 /// Qt writes several shortcuts as `Ctrl+Shift+C; Ctrl+Ins`.
+fn config_source(path: &Path, line: usize) -> Source {
+    Source::Config {
+        path: path.to_path_buf(),
+        line: Some(line),
+    }
+}
+
+/// `(key, value, line)` for each entry in `[group]` of an INI-style file
+/// (KConfig or QSettings). KConfig's `[$i]`-style flags on keys are dropped.
+fn ini_entries<'a>(text: &'a str, group: &str) -> Vec<(&'a str, &'a str, usize)> {
+    let header = format!("[{group}]");
+    let mut in_group = false;
+    let mut entries = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_group = line == header;
+        } else if in_group && let Some((key, value)) = line.split_once('=') {
+            let key = key.split_once("[$").map_or(key, |(key, _)| key).trim();
+            entries.push((key, value.trim(), index + 1));
+        }
+    }
+    entries
+}
+
 fn split_shortcuts(text: &str) -> Vec<String> {
     text.split("; ")
         .map(str::trim)
@@ -646,17 +768,17 @@ mod tests {
             }
         }
         let shortcut_count: usize = DEFAULTS.iter().map(|d| d.2.len()).sum();
-        assert_eq!(bindings(&[]).len(), shortcut_count);
+        assert_eq!(bindings(&Sources::default()).len(), shortcut_count);
     }
 
     #[test]
     fn defaults_have_no_duplicates() {
-        assert!(crate::conflict::find(&bindings(&[])).is_empty());
+        assert!(crate::conflict::find(&bindings(&Sources::default())).is_empty());
     }
 
     #[test]
     fn qt_key_names_match_other_tools() {
-        let bs = bindings(&[]);
+        let bs = bindings(&Sources::default());
         assert_eq!(find(&bs, "Ctrl+Insert").action, "Copy");
         assert_eq!(find(&bs, "Ctrl+PageDown").action, "Next Tab (with 2+ tabs)");
         assert_eq!(find(&bs, "Ctrl++").action, "Enlarge Font");
@@ -665,7 +787,7 @@ mod tests {
 
     #[test]
     fn conditional_actions_say_when_they_apply() {
-        let bs = bindings(&[]);
+        let bs = bindings(&Sources::default());
         assert_eq!(find(&bs, "Shift+Right").action, "Next Tab (with 2+ tabs)");
         assert_eq!(
             find(&bs, "Ctrl+Shift+Up").action,
@@ -688,7 +810,10 @@ mod tests {
  </ActionProperties>
 </gui>"#;
         let path = Path::new("sessionui.rc");
-        let bs = bindings(&[(xml, path)]);
+        let bs = bindings(&Sources {
+            kxmlgui: vec![(xml, path)],
+            ..Default::default()
+        });
 
         let copy = find(&bs, "Ctrl+Alt+C");
         assert_eq!(copy.action, "Copy");
@@ -707,10 +832,69 @@ mod tests {
 
     #[test]
     fn find_next_lives_in_search_mode() {
-        let bs = bindings(&[]);
+        let bs = bindings(&Sources::default());
         let next = find(&bs, "F3");
         assert_eq!(next.describe(), "Find Next (search mode)");
         assert_eq!(next.grabs, Grabs::Never);
+    }
+
+    #[test]
+    fn kde_wide_standard_shortcuts_apply_to_standard_actions_only() {
+        let kdeglobals = "[General]\nfont=Noto Sans\n\n[Shortcuts]\nSaveAs=Ctrl+Alt+S; F12\nWhatsThis=\nCopy=Ctrl+C\n";
+        let path = Path::new("kdeglobals");
+        let bs = bindings(&Sources {
+            kdeglobals: Some((kdeglobals, path)),
+            ..Default::default()
+        });
+        let save = find(&bs, "F12");
+        assert_eq!(save.action, "Save Output As");
+        assert_eq!(
+            save.source,
+            Source::Config {
+                path: path.into(),
+                line: Some(5)
+            }
+        );
+        assert!(!bs.iter().any(|b| b.action == "What's This?"));
+        // Konsole sets its own Copy shortcut, so KDE's standard one doesn't apply.
+        assert_eq!(find(&bs, "Ctrl+Shift+C").action, "Copy");
+        assert!(!bs.iter().any(|b| b.keys() == "Ctrl+C"));
+    }
+
+    #[test]
+    fn plugin_settings_change_quick_access() {
+        let settings =
+            "[plugins]\nquickcommands\\shortcut=Ctrl+Alt+Q\nsshplugin\\ssh_shortcut=\"Meta+,\"\n";
+        let bs = bindings(&Sources {
+            plugin_settings: Some((settings, Path::new("konsole.conf"))),
+            ..Default::default()
+        });
+        assert_eq!(
+            find(&bs, "Ctrl+Alt+Q").action,
+            "Quick Commands: Quick Access"
+        );
+        assert_eq!(find(&bs, "Super+,").action, "SSH Manager: Quick Access");
+        assert!(
+            !bs.iter()
+                .any(|b| b.keys() == "Ctrl+Alt+G" || b.keys() == "Ctrl+Alt+H")
+        );
+    }
+
+    #[test]
+    fn konsole_settings_win_over_kde_wide_ones() {
+        let kdeglobals = "[Shortcuts]\nSaveAs=F12\n";
+        let xml =
+            r#"<ActionProperties><Action name="file_save_as" shortcut="F11"/></ActionProperties>"#;
+        let bs = bindings(&Sources {
+            kdeglobals: Some((kdeglobals, Path::new("kdeglobals"))),
+            kxmlgui: vec![(xml, Path::new("sessionui.rc"))],
+            ..Default::default()
+        });
+        assert!(
+            bs.iter()
+                .any(|b| b.keys() == "F11" && b.action == "Save Output As")
+        );
+        assert!(!bs.iter().any(|b| b.keys() == "F12"));
     }
 
     #[test]

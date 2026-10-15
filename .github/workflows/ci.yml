@@ -17,6 +17,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      # The keyboard layout tests load libxkbcommon and its layout data.
+      - run: sudo apt-get update && sudo apt-get install -y libxkbcommon0 xkb-data
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test

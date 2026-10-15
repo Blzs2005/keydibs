@@ -10,7 +10,8 @@
 //! optional dashes (`Ctrl-s`, `CtrlShiftUp`), an uppercase letter means Shift
 //! (`Alt-F` is not `Alt-f`), and `<Ctrl-q><Ctrl-q>` is a sequence.
 //!
-//! Skipped: mouse bindings and raw escape sequences (`"\u001b[1;5D"`).
+//! Raw escape sequences (`"\u001b[1;5D"`) are decoded to the key they stand for.
+//! Mouse bindings are skipped.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -18,11 +19,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use super::{Adapter, config_home, on_path, shorten};
+use super::{Adapter, config_home, escape, on_path, shorten, version_note};
 use crate::binding::{Binding, Grabs, Layer, Source};
 use crate::chord::{Chord, Key, Mods};
 
 const TOOL: &str = "micro";
+
+/// The micro version the defaults below come from.
+const DEFAULTS_VERSION: &str = "2.0.15";
 
 /// micro 2.0.15's Linux defaults, from `internal/action/defaults_other.go`.
 const BUFFER_DEFAULTS: &[(&str, &str)] = &[
@@ -219,6 +223,12 @@ impl Adapter for Micro {
         Layer::App
     }
 
+    fn notes(&self) -> Vec<String> {
+        version_note("micro", TOOL, &["-version"], DEFAULTS_VERSION, version_line)
+            .into_iter()
+            .collect()
+    }
+
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>> {
         let path = config_dir().map(|dir| dir.join("bindings.json"));
         let config = match &path {
@@ -235,6 +245,13 @@ impl Adapter for Micro {
         let config = config.as_deref().zip(path.as_deref());
         bindings(config).map(Some)
     }
+}
+
+/// Picks `2.0.15` out of `micro -version`, which prints `Version: 2.0.15` among other lines.
+fn version_line(output: &str) -> Option<&str> {
+    output
+        .lines()
+        .find_map(|line| line.strip_prefix("Version:"))
 }
 
 /// `$MICRO_CONFIG_HOME`, else `micro` in the XDG config directory.
@@ -401,7 +418,11 @@ fn parse_key(name: &str) -> Option<Chord> {
             break;
         }
     }
-    if rest.is_empty() || rest.starts_with('\x1b') || rest.starts_with("Mouse") {
+    // A raw escape sequence, which micro matches as is, whatever came before it.
+    if rest.starts_with('\x1b') {
+        return escape::decode(rest);
+    }
+    if rest.is_empty() || rest.starts_with("Mouse") {
         return None;
     }
 
@@ -528,7 +549,8 @@ mod tests {
         assert_eq!(parse_key("Ctrl-Space"), Some(chord("ctrl+space")));
         assert_eq!(parse_key("F10"), Some(chord("f10")));
         assert_eq!(parse_key("Ctrl-MouseLeft"), None);
-        assert_eq!(parse_key("\u{1b}[1;5D"), None);
+        assert_eq!(parse_key("\u{1b}[1;5D"), Some(chord("ctrl+left")));
+        assert_eq!(parse_key("\u{1b}[weird"), None);
         assert_eq!(parse_key("Ctrl-Nonsense"), None);
     }
 

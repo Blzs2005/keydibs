@@ -9,6 +9,8 @@ pub mod adapters;
 pub mod binding;
 pub mod chord;
 pub mod conflict;
+pub mod layout;
+pub mod reach;
 
 pub use binding::{Binding, Layer, Source};
 pub use chord::{Chord, Key, Mods};

@@ -7,11 +7,11 @@
 //! fish config, exactly as opening a new terminal does.
 
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use anyhow::{Context, bail};
 
-use super::{Adapter, on_path, shorten};
+use super::{Adapter, COMMAND_TIMEOUT, escape, on_path, run, shorten};
 use crate::binding::{Binding, Grabs, Layer, Source};
 use crate::chord::{Chord, Key, Mods};
 
@@ -32,16 +32,20 @@ impl Adapter for Fish {
         Layer::Shell
     }
 
+    /// fish 4 turns it on in terminals that support it.
+    fn kitty_keyboard(&self) -> bool {
+        true
+    }
+
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>> {
         if !on_path(TOOL) {
             return Ok(None);
         }
-        let output = Command::new(TOOL)
-            .args(["-i", "-c", SCRIPT])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .context("running fish")?;
+        let output = run(
+            Command::new(TOOL).args(["-i", "-c", SCRIPT]),
+            COMMAND_TIMEOUT,
+        )
+        .context("running fish")?;
         if !output.status.success() {
             bail!("`fish -c bind` failed ({})", output.status);
         }
@@ -84,6 +88,16 @@ pub fn parse(output: &str) -> Vec<Binding> {
 
     // With vi bindings, fish's "default" mode is vi's normal mode.
     let vi = entries.iter().any(|e| e.mode == "insert");
+
+    // fish binds some keys twice: by name (`alt-up`) and as the raw sequence other
+    // terminals send for it (`\e[1;9A`). A raw binding that does what a named one
+    // in the same mode does is such a fallback, not a shortcut of its own.
+    let named: Vec<(String, Vec<String>)> = entries
+        .iter()
+        .filter(|e| !is_raw(&e.key))
+        .map(|e| (e.mode.clone(), e.commands.clone()))
+        .collect();
+    entries.retain(|e| !is_raw(&e.key) || !named.contains(&(e.mode.clone(), e.commands.clone())));
 
     entries
         .into_iter()
@@ -153,13 +167,15 @@ fn parse_entry(line: &str, defined_in: &Option<String>) -> Option<Entry> {
     })
 }
 
-/// Parses a key like `ctrl-alt-h`, `\$` (already unescaped to `$`) or a
-/// sequence like `ctrl-x,ctrl-e`. Returns `None` for the self-insert catch-all
-/// (`''`) and for raw escape sequences like `\e[1;9A`, which are fallbacks for
-/// old terminals that duplicate the named keys.
+/// Parses a key like `ctrl-alt-h`, `\$` (already unescaped to `$`), a sequence
+/// like `ctrl-x,ctrl-e`, or a raw escape sequence like `\e[1;5C`. Returns `None`
+/// for the self-insert catch-all (`''`) and raw sequences it can't decode.
 fn parse_keys(token: &str) -> Option<Vec<Chord>> {
-    if token.is_empty() || token.chars().any(|c| c.is_control()) {
+    if token.is_empty() {
         return None;
+    }
+    if is_raw(token) {
+        return escape::decode(token).map(|chord| vec![chord]);
     }
     let parts: Vec<&str> = token.split(',').collect();
     if parts.len() > 1 && parts.iter().all(|p| !p.is_empty()) {
@@ -167,6 +183,11 @@ fn parse_keys(token: &str) -> Option<Vec<Chord>> {
     } else {
         parse_key(token).map(|chord| vec![chord])
     }
+}
+
+/// Whether a key is a raw byte sequence (it has control characters, like ESC).
+fn is_raw(key: &str) -> bool {
+    key.chars().any(char::is_control)
 }
 
 fn parse_key(name: &str) -> Option<Chord> {
@@ -307,6 +328,9 @@ bind --preset ctrl-r history-pager
 bind --preset alt-\< beginning-of-buffer
 bind --preset ctrl-alt-h backward-kill-word
 bind --preset \e\[1\;9A history-token-search-backward
+bind --preset alt-up history-token-search-backward
+bind --preset \e\[1\;5C forward-word
+bind --preset \eep fish_clipboard_paste
 bind --preset alt-s 'for cmd in sudo doas please run0; if command -q $cmd; fish_commandline_prepend $cmd; break; end; end'
 bind --preset alt-- something
 bind --preset ctrl-x,ctrl-e edit_command_buffer
@@ -343,13 +367,24 @@ bind \' "_autopair_insert_same \\'"
     }
 
     #[test]
-    fn self_insert_and_raw_sequences_are_skipped() {
+    fn self_insert_is_skipped() {
+        assert!(parsed().iter().all(|b| b.action != "self-insert"));
+    }
+
+    #[test]
+    fn raw_sequences_are_decoded_unless_they_are_fallbacks() {
         let bs = parsed();
-        assert!(bs.iter().all(|b| b.action != "self-insert"));
-        assert!(
-            bs.iter()
-                .all(|b| b.action != "history-token-search-backward")
-        );
+        // `\e[1;9A` does what `alt-up` does: a fallback, not a second shortcut.
+        let history: Vec<_> = bs
+            .iter()
+            .filter(|b| b.action == "history-token-search-backward")
+            .collect();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].keys(), "Alt+Up");
+        // `\e[1;5C` is the only binding for its action, so it stays, decoded.
+        assert_eq!(find(&bs, "Ctrl+Right").action, "forward-word");
+        // Sequences that aren't a key press are skipped.
+        assert!(bs.iter().all(|b| b.action != "fish_clipboard_paste"));
     }
 
     #[test]

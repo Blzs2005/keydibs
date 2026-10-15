@@ -6,8 +6,8 @@
 //! outside full-screen apps, `Alt` only inside them, and `Vi` or `Search` only in
 //! Alacritty's own modes, where keys don't travel further down anyway.
 //!
-//! Not handled yet: files pulled in with `general.import`, and bindings given
-//! as raw scancodes (`key = 123`).
+//! Files pulled in with `general.import` are read too, in the order Alacritty
+//! merges them. Not handled yet: bindings given as raw scancodes (`key = 123`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,11 +16,14 @@ use anyhow::Context;
 use serde::Deserialize;
 use toml::Spanned;
 
-use super::{Adapter, config_home, on_path};
+use super::{Adapter, config_home, on_path, second_word, version_note};
 use crate::binding::{Binding, Grabs, Layer, Source};
 use crate::chord::{Chord, Key, Mods};
 
 const TOOL: &str = "alacritty";
+
+/// The Alacritty version [`DEFAULTS`] comes from.
+const DEFAULTS_VERSION: &str = "0.17";
 
 /// The Linux defaults from `man 5 alacritty-bindings` (Alacritty 0.17), without
 /// the macOS-only `Command` bindings and the Windows-only `Alt+Enter`.
@@ -137,14 +140,87 @@ impl Adapter for Alacritty {
         Layer::Terminal
     }
 
+    /// Supported since Alacritty 0.13.
+    fn kitty_keyboard(&self) -> bool {
+        true
+    }
+
+    fn notes(&self) -> Vec<String> {
+        version_note(
+            "Alacritty",
+            TOOL,
+            &["--version"],
+            DEFAULTS_VERSION,
+            second_word,
+        )
+        .into_iter()
+        .collect()
+    }
+
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>> {
         let Some(path) = config_path() else {
             // No config file, but the defaults still apply if Alacritty is installed.
-            return on_path(TOOL).then(|| bindings(None)).transpose();
+            return on_path(TOOL).then(|| bindings(&[])).transpose();
         };
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        bindings(Some((&text, &path))).map(Some)
+        let mut files = Vec::new();
+        collect_files(text, path, IMPORT_DEPTH, &mut files);
+        let files: Vec<(&str, &Path)> = files
+            .iter()
+            .map(|(text, path)| (text.as_str(), path.as_path()))
+            .collect();
+        bindings(&files).map(Some)
+    }
+}
+
+/// How deep imports may nest, as in Alacritty.
+const IMPORT_DEPTH: usize = 5;
+
+/// Adds `text` (read from `path`) to `files`, after the files it imports, the
+/// way Alacritty merges them: imports first and in order, each with its own
+/// imports before it, so later files' bindings come later. Imports that are
+/// missing or unreadable are skipped, as Alacritty does.
+fn collect_files(text: String, path: PathBuf, depth: usize, files: &mut Vec<(String, PathBuf)>) {
+    if depth > 0 {
+        for import in imports(&text, &path) {
+            if let Ok(imported) = fs::read_to_string(&import) {
+                collect_files(imported, import, depth - 1, files);
+            }
+        }
+    }
+    files.push((text, path));
+}
+
+/// The files `text` imports, from `general.import` or the older top-level `import`.
+fn imports(text: &str, path: &Path) -> Vec<PathBuf> {
+    let Ok(table) = text.parse::<toml::Table>() else {
+        return Vec::new();
+    };
+    let list = table.get("import").or_else(|| {
+        table
+            .get("general")
+            .and_then(|general| general.get("import"))
+    });
+    let Some(toml::Value::Array(list)) = list else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(toml::Value::as_str)
+        .map(|import| resolve_import(path, import))
+        .collect()
+}
+
+/// `~/` means the home directory; other relative paths start from the importing
+/// file's directory.
+fn resolve_import(importer: &Path, import: &str) -> PathBuf {
+    let mut resolved = PathBuf::from(import);
+    if let (Some(rest), Some(home)) = (import.strip_prefix("~/"), std::env::var_os("HOME")) {
+        resolved = PathBuf::from(home).join(rest);
+    }
+    match importer.parent() {
+        Some(dir) if resolved.is_relative() => dir.join(resolved),
+        _ => resolved,
     }
 }
 
@@ -160,21 +236,23 @@ fn config_path() -> Option<PathBuf> {
     candidates.into_iter().flatten().find(|path| path.is_file())
 }
 
-/// Alacritty's effective key bindings: the defaults, with `config` (its text and
-/// path) applied on top.
-pub fn bindings(config: Option<(&str, &Path)>) -> anyhow::Result<Vec<Binding>> {
+/// Alacritty's effective key bindings: the defaults, with the config files (their
+/// text and path, imports first) applied on top.
+pub fn bindings(configs: &[(&str, &Path)]) -> anyhow::Result<Vec<Binding>> {
     let mut entries = parse(DEFAULTS, |_| Source::Default).expect("built-in defaults parse");
 
-    if let Some((text, path)) = config {
-        let user = parse(text, |line| Source::Config {
+    let mut user = Vec::new();
+    for (text, path) in configs {
+        let file = parse(text, |line| Source::Config {
             path: path.to_path_buf(),
             line: Some(line),
         })
         .with_context(|| format!("parsing {}", path.display()))?;
-        // A config binding replaces any default with the same trigger.
-        entries.retain(|d| !user.iter().any(|u| u.chord == d.chord && u.mode == d.mode));
-        entries.extend(user);
+        user.extend(file);
     }
+    // A config binding replaces any default with the same trigger.
+    entries.retain(|d| !user.iter().any(|u| u.chord == d.chord && u.mode == d.mode));
+    entries.extend(user);
     // `ReceiveChar` means "no binding, let the key through".
     entries.retain(
         |e| !matches!(&e.action, Action::Named(name) if name.eq_ignore_ascii_case("ReceiveChar")),
@@ -438,7 +516,7 @@ bindings = [
 "#;
 
     fn resolved() -> Vec<Binding> {
-        bindings(Some((CACHYOS, Path::new("alacritty.toml")))).unwrap()
+        bindings(&[(CACHYOS, Path::new("alacritty.toml"))]).unwrap()
     }
 
     fn find<'a>(bindings: &'a [Binding], chord: &str, grabs: Grabs) -> &'a Binding {
@@ -513,6 +591,63 @@ bindings = [
             find(&bs, "Ctrl+Shift+T", Grabs::Always).action,
             "run konsole"
         );
+    }
+
+    #[test]
+    fn imports_come_first_and_nest() {
+        let dir = std::env::temp_dir().join(format!("keydibs-alacritty-{}", std::process::id()));
+        fs::create_dir_all(dir.join("themes")).unwrap();
+        let main = dir.join("alacritty.toml");
+        fs::write(
+            &main,
+            r#"[general]
+import = ["themes/keys.toml", "missing.toml"]
+
+[keyboard]
+bindings = [{ key = "N", mods = "Control|Shift", action = "SpawnNewInstance" }]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("themes/keys.toml"),
+            r#"import = ["nested.toml"]
+[keyboard]
+bindings = [{ key = "N", mods = "Control|Shift", action = "CreateNewWindow" }]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("themes/nested.toml"),
+            r#"[keyboard]
+bindings = [{ key = "J", mods = "Control|Shift", action = "ScrollLineDown" }]
+"#,
+        )
+        .unwrap();
+
+        let mut files = Vec::new();
+        let text = fs::read_to_string(&main).unwrap();
+        collect_files(text, main.clone(), IMPORT_DEPTH, &mut files);
+        let names: Vec<_> = files
+            .iter()
+            .map(|(_, path)| path.file_name().unwrap().to_owned())
+            .collect();
+        assert_eq!(names, ["nested.toml", "keys.toml", "alacritty.toml"]);
+
+        let files: Vec<(&str, &Path)> = files
+            .iter()
+            .map(|(text, path)| (text.as_str(), path.as_path()))
+            .collect();
+        let bs = bindings(&files).unwrap();
+        assert_eq!(
+            find(&bs, "Ctrl+Shift+J", Grabs::Always).action,
+            "ScrollLineDown"
+        );
+        // Both fire, the imported one first, since Alacritty runs every match.
+        assert_eq!(
+            find(&bs, "Ctrl+Shift+N", Grabs::Always).action,
+            "CreateNewWindow + SpawnNewInstance"
+        );
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
