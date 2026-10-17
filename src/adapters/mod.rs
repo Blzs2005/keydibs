@@ -15,6 +15,7 @@ pub mod alacritty;
 pub mod bash;
 mod escape;
 pub mod fish;
+pub mod gnome;
 pub mod hyprland;
 pub mod kde;
 pub mod konsole;
@@ -42,6 +43,7 @@ pub trait Adapter {
 pub fn all() -> Vec<Box<dyn Adapter>> {
     vec![
         Box::new(kde::Kde),
+        Box::new(gnome::Gnome),
         Box::new(hyprland::Hyprland),
         Box::new(alacritty::Alacritty),
         Box::new(konsole::Konsole),

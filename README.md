@@ -120,6 +120,7 @@ Change the shortcut you care about less in its tool, then run `keydibs` again.
 | Tool | Where to change shortcuts |
 |---|---|
 | KDE Plasma | System Settings → Keyboard → Shortcuts |
+| GNOME | Settings → Keyboard → View and Customize Shortcuts |
 | Hyprland | your Hyprland config |
 | Konsole | Settings → Configure Keyboard Shortcuts (`Ctrl+Alt+,`) |
 | Alacritty | the `[keyboard]` section of `~/.config/alacritty/alacritty.toml` |
@@ -173,7 +174,7 @@ Key combinations aren't case-sensitive (`ctrl+shift+c` works), and `Meta` and
 
 | | Works now | Coming |
 |---|---|---|
-| **Desktop** | KDE Plasma, Hyprland | Sway, niri, GNOME |
+| **Desktop** | KDE Plasma, GNOME, Hyprland | Sway, niri |
 | **Terminal** | Alacritty, Konsole | kitty, WezTerm, foot, Ghostty |
 | **Terminal multiplexer** | | tmux, Zellij |
 | **Shell** | fish, bash, zsh | |
@@ -218,6 +219,8 @@ A shortcut only counts as blocked when the key really can't get through:
   your config and plugins, and reads its mappings and where each one was made.
   Vim's built-in commands (`Ctrl+W`, `Ctrl+R` in Insert mode…) come from the
   `:help index` of the Neovim you have installed.
+- **GNOME** is read with `gsettings`, only in a GNOME session, since other desktops
+  install its settings too. Shortcuts you changed point to GNOME's settings database.
 - **Hyprland** is read from the running desktop, so it has to be running. If it isn't,
   it's skipped.
 - **Your keyboard layout** is read with libxkbcommon, which every Linux desktop has.

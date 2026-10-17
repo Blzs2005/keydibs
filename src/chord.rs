@@ -51,8 +51,8 @@ impl Key {
             "del" | "delete" => "delete",
             "ins" | "insert" => "insert",
             "return" | "enter" => "enter",
-            "pgup" | "pageup" | "prior" => "pageup",
-            "pgdown" | "pgdn" | "pagedown" | "next" => "pagedown",
+            "pgup" | "pageup" | "page_up" | "prior" => "pageup",
+            "pgdown" | "pgdn" | "pagedown" | "page_down" | "next" => "pagedown",
             "bksp" | "backspace" => "backspace",
             "arrowup" => "up",
             "arrowdown" => "down",
@@ -190,6 +190,7 @@ mod tests {
         assert_eq!(chord("Ctrl+Esc"), chord("ctrl+escape"));
         assert_eq!(chord("Alt+PgUp"), chord("alt+Prior"));
         assert_eq!(chord("Ctrl+Return"), chord("ctrl+enter"));
+        assert_eq!(chord("Super+Page_Up"), chord("super+pageup"));
     }
 
     #[test]
