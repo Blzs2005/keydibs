@@ -1,8 +1,10 @@
-use std::path::Path;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use keydibs::conflict::{self, Conflict};
+use keydibs::ignore::{self, Rule};
 use keydibs::layout::Layout;
 use keydibs::{Binding, Chord, Layer, Source, adapters, reach};
 
@@ -18,8 +20,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Report shadowed and duplicate bindings (the default). Exits 1 if any are found.
-    Check,
+    /// Report clashes and shortcuts that can't arrive (the default). Exits 1 if any are found.
+    Check {
+        /// Also report the clashes listed in ~/.config/keydibs/ignore
+        #[arg(long)]
+        no_ignore: bool,
+    },
     /// Show every layer that binds a chord, in the order a key press reaches them
     Why {
         /// e.g. `ctrl+shift+c` or `Meta+E`
@@ -50,10 +56,15 @@ fn main() -> ExitCode {
             None
         }
     };
+    let command = cli.command.unwrap_or(Command::Check { no_ignore: false });
+    let ignore = match command {
+        Command::Check { no_ignore: false } => ignore_list(layout.as_ref()),
+        _ => None,
+    };
     eprintln!();
 
-    match cli.command.unwrap_or(Command::Check) {
-        Command::Check => check(&found),
+    match command {
+        Command::Check { .. } => check(&found, ignore.as_ref()),
         Command::Why { chord } => {
             let chord = match &layout {
                 Some(layout) => layout.normalize(&chord),
@@ -113,9 +124,61 @@ fn load_all() -> Found {
     found
 }
 
-fn check(found: &Found) -> ExitCode {
+/// The rules in the ignore list, with its path, if there is one. Lines that
+/// aren't rules are reported and skipped.
+fn ignore_list(layout: Option<&Layout>) -> Option<(PathBuf, Vec<Rule>)> {
+    let path = ignore::path()?;
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == ErrorKind::NotFound => return None,
+        Err(e) => {
+            eprintln!("warning: can't read {}: {e}", tilde(&path));
+            return None;
+        }
+    };
+    let tools: Vec<&str> = adapters::all().iter().map(|a| a.tool()).collect();
+    let (mut rules, bad) = ignore::parse(&text, &tools);
+    for line in bad {
+        eprintln!(
+            "warning: skipping {}:{}: {}",
+            tilde(&path),
+            line.line,
+            line.message
+        );
+    }
+    if let Some(layout) = layout {
+        for rule in &mut rules {
+            rule.normalize(layout);
+        }
+    }
+    Some((path, rules))
+}
+
+fn check(found: &Found, ignore: Option<&(PathBuf, Vec<Rule>)>) -> ExitCode {
     let bindings = &found.bindings;
-    let conflicts = conflict::find(bindings);
+    let rules = ignore.map_or(&[][..], |(_, rules)| rules);
+    let mut used = vec![false; rules.len()];
+    let mut ignored = 0;
+    let mut is_ignored = |covers: &dyn Fn(&Rule) -> bool| {
+        let mut hit = false;
+        for (rule, used) in rules.iter().zip(&mut used) {
+            if covers(rule) {
+                *used = true;
+                hit = true;
+            }
+        }
+        ignored += usize::from(hit);
+        hit
+    };
+    let conflicts: Vec<_> = conflict::find(bindings)
+        .into_iter()
+        .filter(|c| !is_ignored(&|rule| rule.covers_conflict(c)))
+        .collect();
+    let unreachable: Vec<_> = reach::unreachable(bindings, &found.terminals, &found.kitty_programs)
+        .into_iter()
+        .filter(|u| !is_ignored(&|rule| rule.covers_unreachable(u)))
+        .collect();
+
     for c in &conflicts {
         match c {
             Conflict::Shadowed { winner, loser } => println!(
@@ -140,7 +203,6 @@ fn check(found: &Found) -> ExitCode {
         }
     }
 
-    let unreachable = reach::unreachable(bindings, &found.terminals, &found.kitty_programs);
     for u in &unreachable {
         println!(
             "can't arrive {}\n  {} \"{}\" ({})\n  {}\n",
@@ -163,13 +225,32 @@ fn check(found: &Found) -> ExitCode {
             "shortcuts that can't arrive",
         ));
     }
-    if problems.is_empty() {
-        println!("no conflicts in {} bindings", bindings.len());
+    let hidden = if ignored > 0 {
+        format!(" ({ignored} ignored)")
+    } else {
+        String::new()
+    };
+    let code = if problems.is_empty() {
+        println!("no conflicts in {} bindings{hidden}", bindings.len());
         ExitCode::SUCCESS
     } else {
-        println!("{} in {} bindings", problems.join(" and "), bindings.len());
+        println!(
+            "{} in {} bindings{hidden}",
+            problems.join(" and "),
+            bindings.len()
+        );
         ExitCode::FAILURE
+    };
+
+    // A rule that matches nothing is a typo, or a clash that's been fixed since.
+    if let Some((path, rules)) = ignore {
+        for (rule, used) in rules.iter().zip(&used) {
+            if !used {
+                eprintln!("note: {}:{} matches nothing", tilde(path), rule.line);
+            }
+        }
     }
+    code
 }
 
 /// Why a shortcut can't arrive, in the terms of the terminals that were found.

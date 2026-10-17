@@ -9,6 +9,7 @@ pub mod adapters;
 pub mod binding;
 pub mod chord;
 pub mod conflict;
+pub mod ignore;
 pub mod layout;
 pub mod reach;
 

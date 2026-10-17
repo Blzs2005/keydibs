@@ -129,12 +129,36 @@ Pick the shortcut you care about less, and change it in that tool:
 
 Then run `keydibs` again to check it's gone.
 
+### Clashes you don't mind
+
+Some clashes never bother you: maybe you never split Konsole's view, so it doesn't
+matter that it takes `Ctrl+Shift+Up`. List them in `~/.config/keydibs/ignore`,
+one per line, with the keys as keydibs prints them:
+
+```sh
+# I never split the view in Konsole
+Ctrl+Shift+Up
+Ctrl+Shift+Down
+
+# Only clashes involving Konsole; fish still gets checked
+Shift+Right konsole
+```
+
+Naming one or more tools after the keys limits the line to clashes they're part
+of. A line also covers key sequences that start with its keys, and `#` starts a
+comment.
+
+keydibs then leaves those out, says how many it left out, and exits with 0 when
+nothing else is left, so `keydibs` can run in scripts. It also tells you about lines
+that match nothing, which catches typos and clashes you've fixed since.
+`keydibs check --no-ignore` shows everything again.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `keydibs` | Same as `keydibs check` |
-| `keydibs check` | Lists every clash and every shortcut that can't arrive. Exits with code 1 if there are any, so you can use it in scripts |
+| `keydibs check` | Lists every clash and every shortcut that can't arrive, except the ones [you've chosen to ignore](#clashes-you-dont-mind). Exits with code 1 if there are any, so you can use it in scripts. Add `--no-ignore` to see them all |
 | `keydibs why <keys>` | Shows every tool that uses one key combination, and which one wins |
 | `keydibs list` | Lists every shortcut keydibs found |
 
