@@ -8,7 +8,7 @@ editor does. keydibs reads the shortcuts of every tool you use, including the
 built-in ones nobody wrote down, and shows you which ones clash.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/app-dark.png">
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/Blzs2005/keydibs/raw/HEAD/docs/app-dark.png">
   <img src="docs/app-light.png" alt="The keydibs app: Konsole takes Ctrl+PageDown, Ctrl+PageUp and Ctrl+Alt+H before micro and fish get them">
 </picture>
 
