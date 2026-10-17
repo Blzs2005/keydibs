@@ -18,6 +18,7 @@ pub mod hyprland;
 pub mod kde;
 pub mod konsole;
 pub mod micro;
+pub mod nvim;
 
 pub trait Adapter {
     fn tool(&self) -> &'static str;
@@ -44,6 +45,7 @@ pub fn all() -> Vec<Box<dyn Adapter>> {
         Box::new(konsole::Konsole),
         Box::new(fish::Fish),
         Box::new(micro::Micro),
+        Box::new(nvim::Nvim::default()),
     ]
 }
 

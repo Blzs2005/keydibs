@@ -83,7 +83,7 @@ can't arrive Ctrl+Shift+S
 
 The *kitty keyboard protocol* fixes this, but only when the terminal supports it
 **and** the program turns it on. keydibs knows which of your tools do (Alacritty,
-Konsole and fish do; micro doesn't), and only reports what really can't arrive.
+Konsole, fish and Neovim do; micro doesn't), and only reports what really can't arrive.
 
 ### Your keyboard layout
 
@@ -125,6 +125,7 @@ Pick the shortcut you care about less, and change it in that tool:
 | Alacritty | the `[keyboard]` section of `~/.config/alacritty/alacritty.toml` |
 | fish | a `bind` line in `~/.config/fish/config.fish` |
 | micro | `~/.config/micro/bindings.json` |
+| Neovim | `vim.keymap.set` in `~/.config/nvim/init.lua`; keydibs shows the file and line of each mapping |
 | Hyprland | your Hyprland config |
 
 Then run `keydibs` again to check it's gone.
@@ -173,7 +174,7 @@ Key combinations aren't case-sensitive: `ctrl+shift+c`, `Ctrl+Shift+C` and
 | **Terminal** | Alacritty, Konsole | kitty, WezTerm, foot, Ghostty |
 | **Terminal multiplexer** | | tmux, Zellij |
 | **Shell** | fish | zsh, bash |
-| **Editor** | micro | Neovim, Helix |
+| **Editor** | micro, Neovim | Helix |
 
 Tools you don't have are skipped automatically.
 Missing one you use? [Each planned tool has an issue](https://github.com/Blzs2005/keydibs/issues?q=is%3Aissue+is%3Aopen+label%3Aadapter),
@@ -207,6 +208,12 @@ A shortcut only counts as blocked when the key really can't get through:
 - **fish** sets up most of its shortcuts when it starts, so keydibs starts fish (with
   your config, minus the greeting) and asks it, just like opening a new terminal does.
   If a tool takes more than 5 seconds to answer, keydibs skips it rather than hang.
+- **Neovim** is asked the same way: keydibs starts a hidden `nvim --headless` with
+  your config and plugins, and reads its mappings and where each one was made.
+  Vim's built-in commands (`Ctrl+W`, `Ctrl+R` in Insert mode…) come from the
+  `:help index` of the Neovim you have installed, so they always match your version.
+  Mappings that only exist once a file is open, like the ones LSP servers add, aren't
+  seen.
 - **Hyprland** is read from the running desktop, so it has to be running. If it isn't,
   it's skipped.
 - **Your keyboard layout** is read with libxkbcommon, which every Linux desktop has.
@@ -215,6 +222,7 @@ A shortcut only counts as blocked when the key really can't get through:
 - **Not covered yet:**
   - Raw key codes (Alacritty `key = 123`, Hyprland `code:28`)
   - Mouse bindings
+  - Neovim's buffer-local mappings
 
 </details>
 
