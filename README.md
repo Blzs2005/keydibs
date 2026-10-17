@@ -2,39 +2,53 @@
 
 Find keyboard shortcuts that clash between your desktop, terminal, shell and editor.
 
-## Why?
+You press a shortcut in your editor and nothing happens. Usually another tool took
+the keys first: your desktop, terminal and shell all see a key press before your
+editor does. keydibs reads the shortcuts of every tool you use, including the
+built-in ones nobody wrote down, and tells you which ones clash.
 
-You press a shortcut in your editor and nothing happens. Or something else happens.
-
-That's usually a **clash**. Your desktop, your terminal, your shell and your editor
-each have their own keyboard shortcuts, and when two of them use the same keys, the
-one that sees the key press first wins. The other shortcut silently stops working.
-
-```
-your key press → desktop → terminal → shell → editor
-                 (first)                      (last)
-```
-
-keydibs reads the shortcuts of every tool you use, including the built-in ones
-nobody ever wrote down, and tells you which ones clash.
-
-## Try it
+## Install
 
 ```sh
 cargo install keydibs
+```
+
+keydibs runs on Linux. If `cargo` isn't found, install Rust from [rustup.rs](https://rustup.rs).
+
+## Use
+
+```sh
 keydibs
 ```
 
-That's it. There's nothing to set up: keydibs finds the tools you have, and it only
-**reads** your settings, never changes them.
+There's nothing to set up. keydibs finds the tools you have and only **reads** their
+settings, never changes them. Each clash looks like this:
 
-> You'll need Rust to install it. If `cargo` isn't found, get it from
-> [rustup.rs](https://rustup.rs). keydibs works on Linux.
+```console
+shadowed   Shift+Right
+  micro "SelectRight" (built-in default)
+  is blocked by konsole "Next Tab (with 2+ tabs)" (built-in default)
+```
 
-## Reading the results
+micro wants `Shift+Right` to select text, but Konsole takes it first to switch tabs,
+though only while you have more than one tab open. *(built-in default)* means it's how
+the tool ships; for shortcuts you set yourself, keydibs shows the file and line.
 
-Here's what keydibs finds on a fresh CachyOS install (KDE, Alacritty, Konsole, fish
-and micro, with a Hungarian keyboard) before changing a single setting:
+To see every tool that uses a key combination, and which one gets it:
+
+```console
+$ keydibs why ctrl+alt+h
+Ctrl+Alt+H
+  terminal    konsole    takes it              SSH Manager: Quick Access  (built-in default)
+  shell       fish       SHADOWED by konsole   backward-kill-word  (built-in default)
+  app         micro      SHADOWED by konsole   DeleteWordLeft  (built-in default)
+```
+
+<details>
+<summary><b>Full example output</b></summary>
+
+On a fresh CachyOS install (KDE, Alacritty, Konsole, fish and micro, Hungarian
+keyboard), before changing any setting:
 
 ```console
 $ keydibs
@@ -56,20 +70,13 @@ shadowed   Shift+Right
 21 conflicts in 534 bindings
 ```
 
-The first lines show which tools keydibs found, how many shortcuts each has, and
-your keyboard layout. After that, each clash reads like a sentence:
+The first lines list the tools keydibs found and your keyboard layout. `keydibs`
+exits with code 1 when it finds anything, so you can use it in scripts.
 
-- **`Ctrl+Alt+H`** is the key combination.
-- **fish** wants it to delete the previous word, but it never gets there, because
-  **Konsole** uses it first to open its SSH Manager.
-- **(built-in default)** means nobody configured this; it's how the tool ships.
-  When a shortcut comes from your own config, keydibs shows the file and line instead.
+</details>
 
-Some clashes only happen sometimes, and keydibs says when. `Next Tab (with 2+ tabs)`
-means Konsole only takes `Shift+Right` while you have more than one tab open. With a
-single tab, micro gets it as usual.
-
-### Shortcuts that can't arrive
+<details>
+<summary><b>Shortcuts that can't arrive</b></summary>
 
 Some key combinations can't get through a terminal at all. Most terminals send
 `Ctrl+Shift+S` exactly like `Ctrl+S`, `Shift+Enter` like `Enter`, and don't pass
@@ -82,16 +89,18 @@ can't arrive Ctrl+Shift+S
 ```
 
 The *kitty keyboard protocol* fixes this, but only when the terminal supports it
-**and** the program turns it on. keydibs knows which of your tools do (Alacritty,
-Konsole, fish and Neovim do; micro doesn't), and only reports what really can't arrive.
+**and** the program turns it on. Alacritty, Konsole, fish and Neovim do; micro
+doesn't. keydibs only reports what really can't arrive.
 
-### Your keyboard layout
+</details>
 
-On a Hungarian keyboard, `(` is Shift+8; on a US one it's Shift+9. Tools write such
-shortcuts either way (`Ctrl+(` or `Ctrl+Shift+8`), so keydibs checks your layout and
-compares the keys you actually press. That's why it shows `Ctrl+(` as
-`Ctrl+Shift+8` on a Hungarian layout, and why it finds clashes like this one, which
-only exist on layouts where `/` needs Shift:
+<details>
+<summary><b>Your keyboard layout</b></summary>
+
+On a Hungarian keyboard `(` is Shift+8; on a US one it's Shift+9. Tools write such
+shortcuts either way (`Ctrl+(` or `Ctrl+Shift+8`), so keydibs compares the keys you
+actually press on your layout. That's why it shows `Ctrl+(` as `Ctrl+Shift+8` on a
+Hungarian layout, and why it finds clashes that only exist on some layouts:
 
 ```console
 shadowed   Ctrl+Shift+6
@@ -99,72 +108,64 @@ shadowed   Ctrl+Shift+6
   is blocked by konsole "Copy Input to None" (built-in default)
 ```
 
-### Looking up one shortcut
+</details>
 
-Wondering why a particular shortcut doesn't work? Ask about it:
+## Fix a clash
 
-```console
-$ keydibs why ctrl+alt+h
-Ctrl+Alt+H
-  terminal    konsole    takes it              SSH Manager: Quick Access  (built-in default)
-  shell       fish       SHADOWED by konsole   backward-kill-word  (built-in default)
-  app         micro      SHADOWED by konsole   DeleteWordLeft  (built-in default)
-```
+Change the shortcut you care about less in its tool, then run `keydibs` again.
 
-This lists every tool that uses the key combination, in the order your key press
-reaches them, and which one actually gets it.
-
-## Fixing a clash
-
-Pick the shortcut you care about less, and change it in that tool:
+<details>
+<summary><b>Where each tool keeps its shortcuts</b></summary>
 
 | Tool | Where to change shortcuts |
 |---|---|
 | KDE Plasma | System Settings → Keyboard → Shortcuts |
+| Hyprland | your Hyprland config |
 | Konsole | Settings → Configure Keyboard Shortcuts (`Ctrl+Alt+,`) |
 | Alacritty | the `[keyboard]` section of `~/.config/alacritty/alacritty.toml` |
 | fish | a `bind` line in `~/.config/fish/config.fish` |
 | micro | `~/.config/micro/bindings.json` |
-| Neovim | `vim.keymap.set` in `~/.config/nvim/init.lua`; keydibs shows the file and line of each mapping |
-| Hyprland | your Hyprland config |
+| Neovim | `vim.keymap.set` in `~/.config/nvim/init.lua` |
 
-Then run `keydibs` again to check it's gone.
+</details>
 
 ### Clashes you don't mind
 
-Some clashes never bother you: maybe you never split Konsole's view, so it doesn't
-matter that it takes `Ctrl+Shift+Up`. List them in `~/.config/keydibs/ignore`,
-one per line, with the keys as keydibs prints them:
+List them in `~/.config/keydibs/ignore`, one per line, written the way keydibs
+prints them:
 
 ```sh
-# I never split the view in Konsole
-Ctrl+Shift+Up
-Ctrl+Shift+Down
-
-# Only clashes Konsole is part of; other terminals still get checked
-Shift+Right konsole
+Ctrl+Shift+Up          # every clash on these keys
+Shift+Right konsole    # only the ones Konsole is part of
 ```
 
-Naming one or more tools after the keys limits the line to clashes they're part
-of. A line also covers key sequences that start with its keys, and `#` starts a
-comment.
-
-keydibs then leaves those out, says how many it left out, and exits with 0 when
-nothing else is left, so `keydibs` can run in scripts. It also tells you about lines
-that match nothing, which catches typos and clashes you've fixed since.
+keydibs leaves them out and exits with 0 if nothing else is left.
 `keydibs check --no-ignore` shows everything again.
+
+<details>
+<summary><b>More about the ignore list</b></summary>
+
+- Name one or more tools after the keys to limit a line to clashes those tools are
+  part of. `Shift+Right konsole` also covers Konsole blocking your shell; other
+  terminals still get checked.
+- A line covers key sequences that start with its keys: `Ctrl+X` also covers
+  `Ctrl+X, Ctrl+E`.
+- `#` starts a comment.
+- keydibs says how many clashes it left out, and points out lines that match
+  nothing, which catches typos and clashes you've fixed since.
+
+</details>
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `keydibs` | Same as `keydibs check` |
-| `keydibs check` | Lists every clash and every shortcut that can't arrive, except the ones [you've chosen to ignore](#clashes-you-dont-mind). Exits with code 1 if there are any, so you can use it in scripts. Add `--no-ignore` to see them all |
-| `keydibs why <keys>` | Shows every tool that uses one key combination, and which one wins |
+| `keydibs` or `keydibs check` | Lists every clash and every shortcut that can't arrive, and exits with 1 if there are any. `--no-ignore` includes the ignored ones |
+| `keydibs why <keys>` | Shows every tool that uses a key combination, and which one gets it |
 | `keydibs list` | Lists every shortcut keydibs found |
 
-Key combinations aren't case-sensitive: `ctrl+shift+c`, `Ctrl+Shift+C` and
-`shift+ctrl+c` are all the same. `Meta` and `Super` both mean the Windows/logo key.
+Key combinations aren't case-sensitive (`ctrl+shift+c` works), and `Meta` and
+`Super` both mean the Windows/logo key.
 
 ## Supported tools
 
@@ -176,8 +177,8 @@ Key combinations aren't case-sensitive: `ctrl+shift+c`, `Ctrl+Shift+C` and
 | **Shell** | fish | zsh, bash |
 | **Editor** | micro, Neovim | Helix |
 
-Tools you don't have are skipped automatically.
-Missing one you use? [Each planned tool has an issue](https://github.com/Blzs2005/keydibs/issues?q=is%3Aissue+is%3Aopen+label%3Aadapter),
+Tools you don't have are skipped. Missing one you use?
+[Each planned tool has an issue](https://github.com/Blzs2005/keydibs/issues?q=is%3Aissue+is%3Aopen+label%3Aadapter),
 and comments or help are welcome.
 
 <details>
@@ -200,44 +201,43 @@ A shortcut only counts as blocked when the key really can't get through:
 </details>
 
 <details>
-<summary><b>Good to know</b></summary>
+<summary><b>How keydibs reads each tool</b></summary>
 
-- **Built-in shortcuts** come from each tool's source code for a specific version:
-  Alacritty 0.17, Konsole 26.08 and micro 2.0.15. If you have a different version,
-  keydibs says so, since a few shortcuts may differ.
-- **fish** sets up most of its shortcuts when it starts, so keydibs starts fish (with
-  your config, minus the greeting) and asks it, just like opening a new terminal does.
-  If a tool takes more than 5 seconds to answer, keydibs skips it rather than hang.
+- **Built-in shortcuts** of Alacritty, Konsole and micro come from their source code
+  for a specific version: Alacritty 0.17, Konsole 26.08 and micro 2.0.15. If you have
+  a different version, keydibs says so, since a few shortcuts may differ.
+- **fish** sets up most of its shortcuts when it starts, so keydibs starts fish with
+  your config (minus the greeting) and asks it, just like opening a new terminal does.
 - **Neovim** is asked the same way: keydibs starts a hidden `nvim --headless` with
   your config and plugins, and reads its mappings and where each one was made.
   Vim's built-in commands (`Ctrl+W`, `Ctrl+R` in Insert mode…) come from the
-  `:help index` of the Neovim you have installed, so they always match your version.
-  Mappings that only exist once a file is open, like the ones LSP servers add, aren't
-  seen.
+  `:help index` of the Neovim you have installed.
 - **Hyprland** is read from the running desktop, so it has to be running. If it isn't,
   it's skipped.
 - **Your keyboard layout** is read with libxkbcommon, which every Linux desktop has.
-  If it's missing, symbols are compared as written. Symbols typed with AltGr aren't
-  matched yet.
-- **Not covered yet:**
-  - Raw key codes (Alacritty `key = 123`, Hyprland `code:28`)
-  - Mouse bindings
-  - Neovim's buffer-local mappings
+  If it's missing, symbols are compared as written.
+- A tool that takes more than 5 seconds to answer is skipped, so keydibs never hangs.
+
+</details>
+
+<details>
+<summary><b>Not covered yet</b></summary>
+
+- Raw key codes (Alacritty `key = 123`, Hyprland `code:28`)
+- Mouse bindings
+- Symbols typed with AltGr
+- Neovim mappings that only exist once a file is open, like the ones LSP servers add
 
 </details>
 
 ## Contributing
 
-Adding support for a tool means writing one file. [CONTRIBUTING.md](CONTRIBUTING.md)
-walks you through it, and issues labeled
+Adding a tool means writing one file; [CONTRIBUTING.md](CONTRIBUTING.md) walks you
+through it. Issues labeled
 [`good first issue`](https://github.com/Blzs2005/keydibs/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 are the easiest place to start.
 
-To install the latest unreleased version from `main`:
-
-```sh
-cargo install --git https://github.com/Blzs2005/keydibs
-```
+To install the latest unreleased version: `cargo install --git https://github.com/Blzs2005/keydibs`
 
 ## License
 
