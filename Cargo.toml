@@ -30,5 +30,5 @@ gui = ["dep:eframe", "dep:egui_extras"]
 
 [dev-dependencies]
 # egui_kittest needs eframe with a renderer, even in a build without the app.
-eframe = { version = "0.37.0", default-features = false, features = ["glow"] }
+eframe = { version = "0.37.0", default-features = false, features = ["glow", "wayland", "x11"] }
 egui_kittest = { version = "0.37.0", features = ["eframe"] }
