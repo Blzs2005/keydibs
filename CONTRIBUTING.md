@@ -1,7 +1,7 @@
 # Contributing to keydibs
 
 Thanks for helping! Most contributions are **adapters**: one file that teaches keydibs
-to read one tool's keybindings. The four that exist are good references:
+to read one tool's keybindings. These are good ones to learn from:
 
 | Adapter | How it reads bindings | Worth copying for |
 |---|---|---|
@@ -9,6 +9,7 @@ to read one tool's keybindings. The four that exist are good references:
 | `src/adapters/alacritty.rs` | Built-in defaults + config file on top | Tools with default bindings, modes |
 | `src/adapters/fish.rs` | Runs the tool and parses its output | Keymaps built by code at startup |
 | `src/adapters/hyprland.rs` | Asks the running program over IPC (JSON) | Tools with a "list bindings" command |
+| `src/adapters/nvim.rs` | Runs the tool with a script that prints JSON | Tools with a scripting API; built-ins read from the tool's own docs |
 
 ## Writing an adapter
 
@@ -20,6 +21,11 @@ to read one tool's keybindings. The four that exist are good references:
    - `load()`: return `Ok(None)` when the tool isn't installed or set up, so users
      who don't have it see nothing. Return `Err` only for real problems, like a
      config file that exists but can't be read.
+   - `kitty_keyboard()` (terminals, shells and apps): whether a terminal supports
+     the kitty keyboard protocol, or a shell or app turns it on. It decides which
+     shortcuts can't arrive, so check the tool's docs; the default is `false`.
+   - `notes()` (optional): things to tell the user, like an installed version that
+     differs from the one your built-in defaults come from (see `version_note`).
 
 2. **Keep the parsing a pure function** (`pub fn parse(text: &str, …) -> Vec<Binding>`)
    so it can be tested with a fixture string, without the tool installed. `load()`

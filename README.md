@@ -141,7 +141,7 @@ one per line, with the keys as keydibs prints them:
 Ctrl+Shift+Up
 Ctrl+Shift+Down
 
-# Only clashes involving Konsole; fish still gets checked
+# Only clashes Konsole is part of; other terminals still get checked
 Shift+Right konsole
 ```
 
