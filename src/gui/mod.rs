@@ -413,35 +413,41 @@ fn scanning(ui: &mut egui::Ui, progress: &[String]) {
 fn side_panel(ui: &mut egui::Ui, view: &mut View, findings: &[Finding]) {
     ui.add_space(6.0);
     ui.strong("Tools found");
-    if ui
-        .selectable_label(view.tool.is_none(), "All tools")
-        .clicked()
-    {
-        view.act(Action::FilterTool(None));
-    }
+    // A justified layout makes every row as wide as the panel, so they all
+    // highlight the same on hover however long their text is.
+    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+        if ui
+            .add(egui::Button::selectable(view.tool.is_none(), "All tools"))
+            .clicked()
+        {
+            view.act(Action::FilterTool(None));
+        }
+        for tool in &view.scanned.found.tools {
+            let clashes = findings
+                .iter()
+                .filter(|f| !f.is_ignored() && f.problem.tools().contains(&tool.name))
+                .count();
+            let count = match clashes {
+                0 => String::new(),
+                1 => "1 clash".to_string(),
+                count => format!("{count} clashes"),
+            };
+            let selected = view.tool == Some(tool.name);
+            let response = ui
+                .add(egui::Button::selectable(selected, tool.name).right_text(count))
+                .on_hover_text(format!(
+                    "{} ({}), {} shortcuts\nWhere to change them: {}",
+                    tool.name, tool.layer, tool.bindings, tool.where_to_change
+                ));
+            if response.clicked() {
+                view.act(Action::FilterTool((!selected).then_some(tool.name)));
+            }
+            for note in &tool.notes {
+                ui.label(RichText::new(note).small().weak());
+            }
+        }
+    });
     let found = &view.scanned.found;
-    for tool in &found.tools {
-        let clashes = findings
-            .iter()
-            .filter(|f| !f.is_ignored() && f.problem.tools().contains(&tool.name))
-            .count();
-        let label = if clashes > 0 {
-            format!("{}  ·  {clashes} clashes", tool.name)
-        } else {
-            tool.name.to_string()
-        };
-        let selected = view.tool == Some(tool.name);
-        let response = ui.selectable_label(selected, label).on_hover_text(format!(
-            "{} ({}), {} shortcuts\nWhere to change them: {}",
-            tool.name, tool.layer, tool.bindings, tool.where_to_change
-        ));
-        if response.clicked() {
-            view.act(Action::FilterTool((!selected).then_some(tool.name)));
-        }
-        for note in &tool.notes {
-            ui.label(RichText::new(note).small().weak());
-        }
-    }
     for skipped in &found.skipped {
         ui.label(
             RichText::new(format!("{} skipped: {}", skipped.tool, skipped.error))
