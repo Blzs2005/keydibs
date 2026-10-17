@@ -48,6 +48,10 @@ impl Adapter for Bash {
         Layer::Shell
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "~/.inputrc, or a bind line in ~/.bashrc"
+    }
+
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>> {
         if !is_login_shell(TOOL) || !on_path(TOOL) {
             return Ok(None);

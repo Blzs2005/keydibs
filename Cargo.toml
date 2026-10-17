@@ -2,12 +2,12 @@
 name = "keydibs"
 version = "0.6.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 description = "Find keyboard shortcuts that clash between your desktop, terminal, shell and editor"
 license = "MIT"
 repository = "https://github.com/Blzs2005/keydibs"
 readme = "README.md"
-exclude = [".github"]
+exclude = [".github", "docs"]
 keywords = ["keybindings", "shortcuts", "kde", "terminal", "cli"]
 categories = ["command-line-utilities"]
 
@@ -15,8 +15,20 @@ categories = ["command-line-utilities"]
 anyhow = "1.0.104"
 bitflags = "2.13.2"
 clap = { version = "4.6.7", features = ["derive"] }
+eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "glow", "system_fonts", "wayland", "x11"], optional = true }
+egui_extras = { version = "0.37.0", default-features = false, optional = true }
 json5 = "1.3.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 toml = "1.1.8"
 xkbcommon-dl = "0.4.2"
+
+[features]
+default = ["gui"]
+# The app window (`keydibs gui`). Build without it for a CLI-only keydibs.
+gui = ["dep:eframe", "dep:egui_extras"]
+
+[dev-dependencies]
+# egui_kittest needs eframe with a renderer, even in a build without the app.
+eframe = { version = "0.37.0", default-features = false, features = ["glow"] }
+egui_kittest = { version = "0.37.0", features = ["eframe"] }

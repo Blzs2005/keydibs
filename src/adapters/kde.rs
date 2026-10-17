@@ -28,6 +28,10 @@ impl Adapter for Kde {
         Layer::Compositor
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "System Settings → Keyboard → Shortcuts"
+    }
+
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>> {
         let Some(path) = config_home().map(|dir| dir.join("kglobalshortcutsrc")) else {
             return Ok(None);

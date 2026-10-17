@@ -35,6 +35,10 @@ impl Adapter for Hyprland {
         Layer::Compositor
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "your Hyprland config"
+    }
+
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>> {
         if !on_path("hyprctl") {
             return Ok(None);

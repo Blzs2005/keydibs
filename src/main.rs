@@ -1,12 +1,17 @@
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use keydibs::conflict::{self, Conflict};
-use keydibs::ignore::{self, Rule};
+use keydibs::ignore;
 use keydibs::layout::Layout;
-use keydibs::{Binding, Chord, Layer, Source, adapters, reach};
+use keydibs::report::{self, Finding, Problem, source, tilde};
+use keydibs::scan::{self, Event, Found};
+use keydibs::{Binding, Chord};
+
+#[cfg(feature = "gui")]
+mod desktop;
+#[cfg(feature = "gui")]
+mod gui;
 
 #[derive(Parser)]
 #[command(
@@ -33,11 +38,42 @@ enum Command {
     },
     /// List every binding keydibs found
     List,
+    /// Open the keydibs app
+    #[cfg(feature = "gui")]
+    Gui,
+    /// Add keydibs to your app launcher, so the app opens like any other
+    #[cfg(feature = "gui")]
+    InstallDesktop {
+        /// Take it out of the app launcher again
+        #[arg(long)]
+        remove: bool,
+    },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let mut found = load_all();
+    let command = cli.command.unwrap_or(Command::Check { no_ignore: false });
+    #[cfg(feature = "gui")]
+    match command {
+        Command::Gui => return gui::run(),
+        Command::InstallDesktop { remove } => return desktop::install(remove),
+        _ => {}
+    }
+
+    let mut found = scan::load(|event| match event {
+        Event::Scanned(tool) => {
+            eprintln!(
+                "scanned {} ({}): {} bindings",
+                tool.name, tool.layer, tool.bindings
+            );
+            for note in &tool.notes {
+                eprintln!("  note: {note}");
+            }
+        }
+        Event::Skipped(skipped) => {
+            eprintln!("warning: skipping {}: {}", skipped.tool, skipped.error)
+        }
+    });
     let layout = match Layout::load() {
         Ok(layout) => {
             let name = if layout.name.is_empty() {
@@ -46,9 +82,7 @@ fn main() -> ExitCode {
                 &layout.name
             };
             eprintln!("keyboard layout: {name}");
-            for binding in &mut found.bindings {
-                layout.normalize_binding(binding);
-            }
+            found.normalize(&layout);
             Some(layout)
         }
         Err(e) => {
@@ -56,7 +90,6 @@ fn main() -> ExitCode {
             None
         }
     };
-    let command = cli.command.unwrap_or(Command::Check { no_ignore: false });
     let ignore = match command {
         Command::Check { no_ignore: false } => ignore_list(layout.as_ref()),
         _ => None,
@@ -77,111 +110,43 @@ fn main() -> ExitCode {
             list(&found.bindings);
             ExitCode::SUCCESS
         }
+        #[cfg(feature = "gui")]
+        Command::Gui | Command::InstallDesktop { .. } => unreachable!("handled above"),
     }
 }
 
-/// What was found on this machine.
-struct Found {
-    bindings: Vec<Binding>,
-    terminals: Vec<reach::Terminal>,
-    /// Shells and apps that turn on the kitty keyboard protocol.
-    kitty_programs: Vec<&'static str>,
-}
-
-fn load_all() -> Found {
-    let mut found = Found {
-        bindings: Vec::new(),
-        terminals: Vec::new(),
-        kitty_programs: Vec::new(),
-    };
-    for adapter in adapters::all() {
-        match adapter.load() {
-            Ok(Some(bindings)) => {
-                eprintln!(
-                    "scanned {} ({}): {} bindings",
-                    adapter.tool(),
-                    adapter.layer(),
-                    bindings.len()
-                );
-                for note in adapter.notes() {
-                    eprintln!("  note: {note}");
-                }
-                match adapter.layer() {
-                    Layer::Terminal => found.terminals.push(reach::Terminal {
-                        tool: adapter.tool(),
-                        kitty_keyboard: adapter.kitty_keyboard(),
-                    }),
-                    Layer::Compositor => {}
-                    _ if adapter.kitty_keyboard() => found.kitty_programs.push(adapter.tool()),
-                    _ => {}
-                }
-                found.bindings.extend(bindings);
-            }
-            Ok(None) => {}
-            Err(e) => eprintln!("warning: skipping {}: {e:#}", adapter.tool()),
-        }
-    }
-    found
-}
-
-/// The rules in the ignore list, with its path, if there is one. Lines that
-/// aren't rules are reported and skipped.
-fn ignore_list(layout: Option<&Layout>) -> Option<(PathBuf, Vec<Rule>)> {
+/// The ignore list, if there is one. Lines that aren't rules are reported and skipped.
+fn ignore_list(layout: Option<&Layout>) -> Option<ignore::List> {
     let path = ignore::path()?;
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == ErrorKind::NotFound => return None,
+    let list = match ignore::load(&path, layout) {
+        Ok(list) => list?,
         Err(e) => {
             eprintln!("warning: can't read {}: {e}", tilde(&path));
             return None;
         }
     };
-    let tools: Vec<&str> = adapters::all().iter().map(|a| a.tool()).collect();
-    let (mut rules, bad) = ignore::parse(&text, &tools);
-    for line in bad {
+    for line in &list.bad {
         eprintln!(
             "warning: skipping {}:{}: {}",
-            tilde(&path),
+            tilde(&list.path),
             line.line,
             line.message
         );
     }
-    if let Some(layout) = layout {
-        for rule in &mut rules {
-            rule.normalize(layout);
-        }
-    }
-    Some((path, rules))
+    Some(list)
 }
 
-fn check(found: &Found, ignore: Option<&(PathBuf, Vec<Rule>)>) -> ExitCode {
-    let bindings = &found.bindings;
-    let rules = ignore.map_or(&[][..], |(_, rules)| rules);
-    let mut used = vec![false; rules.len()];
-    let mut ignored = 0;
-    let mut is_ignored = |covers: &dyn Fn(&Rule) -> bool| {
-        let mut hit = false;
-        for (rule, used) in rules.iter().zip(&mut used) {
-            if covers(rule) {
-                *used = true;
-                hit = true;
-            }
-        }
-        ignored += usize::from(hit);
-        hit
-    };
-    let conflicts: Vec<_> = conflict::find(bindings)
-        .into_iter()
-        .filter(|c| !is_ignored(&|rule| rule.covers_conflict(c)))
-        .collect();
-    let unreachable: Vec<_> = reach::unreachable(bindings, &found.terminals, &found.kitty_programs)
-        .into_iter()
-        .filter(|u| !is_ignored(&|rule| rule.covers_unreachable(u)))
-        .collect();
+fn check(found: &Found, ignore: Option<&ignore::List>) -> ExitCode {
+    let rules = ignore.map_or(&[][..], |list| &list.rules[..]);
+    let findings = report::check(found, rules);
+    let (ignored, shown): (Vec<&Finding>, Vec<&Finding>) =
+        findings.iter().partition(|f| f.is_ignored());
 
-    for c in &conflicts {
-        match c {
-            Conflict::Shadowed { winner, loser } => println!(
+    let mut conflicts = 0;
+    let mut unreachable = 0;
+    for finding in &shown {
+        match &finding.problem {
+            Problem::Conflict(Conflict::Shadowed { winner, loser }) => println!(
                 "shadowed   {}\n  {} \"{}\" ({})\n  is blocked by {} \"{}\" ({})\n",
                 loser.keys(),
                 loser.tool,
@@ -191,7 +156,7 @@ fn check(found: &Found, ignore: Option<&(PathBuf, Vec<Rule>)>) -> ExitCode {
                 winner.describe(),
                 source(&winner.source),
             ),
-            Conflict::Duplicate { first, second } => println!(
+            Problem::Conflict(Conflict::Duplicate { first, second }) => println!(
                 "duplicate  {}\n  {} binds it to \"{}\" ({})\n  and to \"{}\" ({})\n",
                 first.keys(),
                 first.tool,
@@ -200,81 +165,53 @@ fn check(found: &Found, ignore: Option<&(PathBuf, Vec<Rule>)>) -> ExitCode {
                 second.describe(),
                 source(&second.source),
             ),
+            Problem::Unreachable(u) => println!(
+                "can't arrive {}\n  {} \"{}\" ({})\n  {}\n",
+                u.binding.keys(),
+                u.binding.tool,
+                u.binding.describe(),
+                source(&u.binding.source),
+                report::explain(u),
+            ),
+        }
+        match finding.problem {
+            Problem::Conflict(_) => conflicts += 1,
+            Problem::Unreachable(_) => unreachable += 1,
         }
     }
 
-    for u in &unreachable {
-        println!(
-            "can't arrive {}\n  {} \"{}\" ({})\n  {}\n",
-            u.binding.keys(),
-            u.binding.tool,
-            u.binding.describe(),
-            source(&u.binding.source),
-            explain(u),
-        );
-    }
-
     let mut problems = Vec::new();
-    if !conflicts.is_empty() {
-        problems.push(plural(conflicts.len(), "conflict", "conflicts"));
+    if conflicts > 0 {
+        problems.push(plural(conflicts, "conflict", "conflicts"));
     }
-    if !unreachable.is_empty() {
+    if unreachable > 0 {
         problems.push(plural(
-            unreachable.len(),
+            unreachable,
             "shortcut that can't arrive",
             "shortcuts that can't arrive",
         ));
     }
-    let hidden = if ignored > 0 {
-        format!(" ({ignored} ignored)")
-    } else {
+    let hidden = if ignored.is_empty() {
         String::new()
+    } else {
+        format!(" ({} ignored)", ignored.len())
     };
+    let bindings = found.bindings.len();
     let code = if problems.is_empty() {
-        println!("no conflicts in {} bindings{hidden}", bindings.len());
+        println!("no conflicts in {bindings} bindings{hidden}");
         ExitCode::SUCCESS
     } else {
-        println!(
-            "{} in {} bindings{hidden}",
-            problems.join(" and "),
-            bindings.len()
-        );
+        println!("{} in {bindings} bindings{hidden}", problems.join(" and "));
         ExitCode::FAILURE
     };
 
     // A rule that matches nothing is a typo, or a clash that's been fixed since.
-    if let Some((path, rules)) = ignore {
-        for (rule, used) in rules.iter().zip(&used) {
-            if !used {
-                eprintln!("note: {}:{} matches nothing", tilde(path), rule.line);
-            }
+    if let Some(list) = ignore {
+        for rule in report::unused(&list.rules, &findings) {
+            eprintln!("note: {}:{} matches nothing", tilde(&list.path), rule.line);
         }
     }
     code
-}
-
-/// Why a shortcut can't arrive, in the terms of the terminals that were found.
-fn explain(u: &reach::Unreachable) -> String {
-    let list = |tools: &[&str]| tools.join(" and ");
-    let sends = |tools: &[&str]| match tools {
-        [] => "terminals send".to_string(),
-        [one] => format!("{one} sends"),
-        many => format!("{} send", list(many)),
-    };
-    let sent = format!("{} it as {}", sends(&u.fails_in), u.sent_as);
-    if !u.program_asks {
-        format!(
-            "{sent}, because {} doesn't use the kitty keyboard protocol",
-            u.binding.tool
-        )
-    } else if u.works_in.is_empty() {
-        format!("{sent}; it needs a terminal with the kitty keyboard protocol")
-    } else {
-        format!(
-            "{sent}; it only arrives in {}, which has the kitty keyboard protocol",
-            list(&u.works_in)
-        )
-    }
 }
 
 fn plural(count: usize, one: &str, many: &str) -> String {
@@ -318,26 +255,4 @@ fn list(bindings: &[Binding]) {
     for b in sorted {
         println!("{:<24} {:<10} {}", b.keys(), b.tool, b.describe());
     }
-}
-
-fn source(source: &Source) -> String {
-    match source {
-        Source::Config {
-            path,
-            line: Some(line),
-        } => format!("{}:{line}", tilde(path)),
-        Source::Config { path, line: None } => tilde(path),
-        Source::Default => "built-in default".to_string(),
-        Source::Runtime => "set at runtime".to_string(),
-    }
-}
-
-/// Shows paths under the home directory as `~/...`.
-fn tilde(path: &Path) -> String {
-    if let Some(home) = std::env::var_os("HOME")
-        && let Ok(rest) = path.strip_prefix(&home)
-    {
-        return format!("~/{}", rest.display());
-    }
-    path.display().to_string()
 }

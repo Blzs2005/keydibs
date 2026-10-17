@@ -223,6 +223,10 @@ impl Adapter for Micro {
         Layer::App
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "~/.config/micro/bindings.json"
+    }
+
     fn notes(&self) -> Vec<String> {
         version_note("micro", TOOL, &["-version"], DEFAULTS_VERSION, version_line)
             .into_iter()

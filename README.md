@@ -5,7 +5,13 @@ Find keyboard shortcuts that clash between your desktop, terminal, shell and edi
 You press a shortcut in your editor and nothing happens. Usually another tool took
 the keys first: your desktop, terminal and shell all see a key press before your
 editor does. keydibs reads the shortcuts of every tool you use, including the
-built-in ones nobody wrote down, and tells you which ones clash.
+built-in ones nobody wrote down, and tells you which ones clash, in your terminal
+or in its app.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/app-dark.png">
+  <img src="docs/app-light.png" alt="The keydibs app: Konsole takes Ctrl+PageDown, Ctrl+PageUp and Ctrl+Alt+H before micro and fish get them">
+</picture>
 
 ## Install
 
@@ -14,6 +20,7 @@ cargo install keydibs
 ```
 
 keydibs runs on Linux. If `cargo` isn't found, install Rust from [rustup.rs](https://rustup.rs).
+For just the command line, without the app: `cargo install keydibs --no-default-features`.
 
 ## Use
 
@@ -110,9 +117,22 @@ shadowed   Ctrl+Shift+6
 
 </details>
 
+## The app
+
+```sh
+keydibs gui
+```
+
+The app shows the same clashes, and lets you look up a key by pressing it, search
+every shortcut, and ignore a clash with a click. Run `keydibs install-desktop` once
+to open it from your app launcher like any other app.
+
+The only file it writes is your [ignore list](#clashes-you-dont-mind).
+
 ## Fix a clash
 
-Change the shortcut you care about less in its tool, then run `keydibs` again.
+Change the shortcut you care about less in its tool, then run `keydibs` again (or
+click *Scan again* in the app).
 
 <details>
 <summary><b>Where each tool keeps its shortcuts</b></summary>
@@ -143,7 +163,8 @@ Shift+Right konsole    # only the ones Konsole is part of
 ```
 
 keydibs leaves them out and exits with 0 if nothing else is left.
-`keydibs check --no-ignore` shows everything again.
+`keydibs check --no-ignore` shows everything again. In the app, the *Ignore* button
+on a clash adds the line for you.
 
 <details>
 <summary><b>More about the ignore list</b></summary>
@@ -166,6 +187,8 @@ keydibs leaves them out and exits with 0 if nothing else is left.
 | `keydibs` or `keydibs check` | Lists every clash and every shortcut that can't arrive, and exits with 1 if there are any. `--no-ignore` includes the ignored ones |
 | `keydibs why <keys>` | Shows every tool that uses a key combination, and which one gets it |
 | `keydibs list` | Lists every shortcut keydibs found |
+| `keydibs gui` | Opens the app |
+| `keydibs install-desktop` | Adds the app to your app launcher. `--remove` takes it out again |
 
 Key combinations aren't case-sensitive (`ctrl+shift+c` works), and `Meta` and
 `Super` both mean the Windows/logo key.

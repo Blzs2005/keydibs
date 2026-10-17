@@ -491,6 +491,10 @@ impl Adapter for Konsole {
         Layer::Terminal
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "Settings → Configure Keyboard Shortcuts (Ctrl+Alt+,)"
+    }
+
     /// Konsole 26.08 supports it, and has it on by default.
     fn kitty_keyboard(&self) -> bool {
         true

@@ -140,6 +140,10 @@ impl Adapter for Alacritty {
         Layer::Terminal
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "the [keyboard] section of ~/.config/alacritty/alacritty.toml"
+    }
+
     /// Supported since Alacritty 0.13.
     fn kitty_keyboard(&self) -> bool {
         true

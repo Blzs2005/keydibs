@@ -39,6 +39,10 @@ impl Adapter for Zsh {
         Layer::Shell
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "a bindkey line in ~/.zshrc"
+    }
+
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>> {
         if !is_login_shell(TOOL) || !on_path(TOOL) {
             return Ok(None);

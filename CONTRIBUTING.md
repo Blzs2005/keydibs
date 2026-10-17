@@ -18,6 +18,8 @@ to read one tool's keybindings. These are good ones to learn from:
    - `tool()`: a short lowercase name, like `"kitty"`.
    - `layer()`: where the tool sits in the chain a key press travels down:
      `Compositor`, `Terminal`, `Multiplexer`, `Shell` or `App`.
+   - `where_to_change()`: where the user changes the tool's shortcuts, as in the
+     README's table. The app shows it next to each clash.
    - `load()`: return `Ok(None)` when the tool isn't installed or set up, so users
      who don't have it see nothing. Return `Err` only for real problems, like a
      config file that exists but can't be read.
@@ -67,6 +69,11 @@ modes, overrides and unusual key names.
 
 If you can, also run `cargo run -- check` and `cargo run -- why <chord>` on a
 machine that has the tool, and mention in the PR what you checked.
+
+The app (`src/gui/`) is tested in `src/gui/tests.rs`, which clicks through it with
+[egui_kittest](https://docs.rs/egui_kittest) without opening a window. Shared logic,
+like what counts as a clash, lives in the library (`src/report.rs`, `src/scan.rs`)
+so the command line and the app agree.
 
 ## Before opening a PR
 

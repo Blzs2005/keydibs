@@ -43,6 +43,10 @@ impl Adapter for Gnome {
         Layer::Compositor
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "Settings → Keyboard → View and Customize Shortcuts"
+    }
+
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>> {
         if !in_gnome() || !on_path("gsettings") {
             return Ok(None);

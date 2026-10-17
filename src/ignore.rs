@@ -10,10 +10,14 @@
 //! ```
 //!
 //! A rule on a key also covers the sequences that start with it.
+//!
+//! keydibs only ever writes to this file when you ignore a clash in the app,
+//! or stop ignoring one.
 
-use std::path::PathBuf;
+use std::io::{self, ErrorKind};
+use std::path::{Path, PathBuf};
 
-use crate::adapters::config_home;
+use crate::adapters::{self, config_home};
 use crate::binding::Binding;
 use crate::chord::Chord;
 use crate::conflict::Conflict;
@@ -32,6 +36,8 @@ pub struct Rule {
     pub tools: Vec<String>,
     /// 1-based line in the file.
     pub line: usize,
+    /// The line as written, without its comment.
+    pub text: String,
 }
 
 /// A line that isn't a rule.
@@ -67,6 +73,7 @@ pub fn parse(text: &str, tools: &[&str]) -> (Vec<Rule>, Vec<BadLine>) {
                 keys,
                 tools: rule_tools,
                 line: i + 1,
+                text: without_comment(line).trim().to_string(),
             }),
             Err(e) => bad.push(BadLine {
                 line: i + 1,
@@ -75,6 +82,91 @@ pub fn parse(text: &str, tools: &[&str]) -> (Vec<Rule>, Vec<BadLine>) {
         }
     }
     (rules, bad)
+}
+
+/// The ignore list, as read from its file.
+#[derive(Debug, Clone)]
+pub struct List {
+    pub path: PathBuf,
+    pub rules: Vec<Rule>,
+    pub bad: Vec<BadLine>,
+}
+
+/// Reads the ignore list at `path` (see [`path`]), with its keys as they're
+/// compared on `layout`. `Ok(None)` if there isn't one.
+pub fn load(path: &Path, layout: Option<&Layout>) -> io::Result<Option<List>> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let tools: Vec<&str> = adapters::all().iter().map(|a| a.tool()).collect();
+    let (mut rules, bad) = parse(&text, &tools);
+    if let Some(layout) = layout {
+        for rule in &mut rules {
+            rule.normalize(layout);
+        }
+    }
+    Ok(Some(List {
+        path: path.to_path_buf(),
+        rules,
+        bad,
+    }))
+}
+
+/// A rule for `binding`'s keys, limited to `tool` if there is one.
+pub fn rule_for(binding: &Binding, tool: Option<&str>) -> String {
+    match tool {
+        Some(tool) => format!("{} {tool}", binding.keys()),
+        None => binding.keys(),
+    }
+}
+
+/// Adds `rule` at the end of the ignore list at `path`, creating it if needed.
+pub fn add(path: &Path, rule: &str) -> io::Result<()> {
+    let mut text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            String::new()
+        }
+        Err(e) => return Err(e),
+    };
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(rule);
+    text.push('\n');
+    std::fs::write(path, text)
+}
+
+/// Removes `rule`'s line from the ignore list at `path`. Fails without
+/// changing anything if that line no longer holds the rule, since the file
+/// was edited after it was read.
+pub fn remove(path: &Path, rule: &Rule) -> io::Result<()> {
+    let text = std::fs::read_to_string(path)?;
+    let lines: Vec<&str> = text.lines().collect();
+    match lines.get(rule.line - 1) {
+        Some(line) if without_comment(line).trim() == rule.text => {}
+        _ => {
+            return Err(io::Error::other(format!(
+                "line {} has changed since keydibs read it",
+                rule.line
+            )));
+        }
+    }
+    let mut kept: String = lines
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| i != rule.line - 1)
+        .flat_map(|(_, line)| [*line, "\n"])
+        .collect();
+    if !text.ends_with('\n') {
+        kept.pop();
+    }
+    std::fs::write(path, kept)
 }
 
 /// `line` up to a `#` that starts it or follows a space. `Ctrl+#` is a key.
@@ -201,6 +293,40 @@ Ctrl+# ";
         assert!(rule("Shift+Right micro").covers_conflict(&shadowed(&micro)));
         assert!(!rule("Shift+Right micro").covers_conflict(&shadowed(&fish)));
         assert!(!rule("Shift+Left").covers_conflict(&shadowed(&fish)));
+    }
+
+    #[test]
+    fn rules_keep_their_text() {
+        assert_eq!(
+            rule("Ctrl+Shift+Up  konsole   # not micro's").text,
+            "Ctrl+Shift+Up  konsole"
+        );
+    }
+
+    #[test]
+    fn adding_and_removing_rules() {
+        let dir = std::env::temp_dir().join(format!("keydibs-ignore-{}", std::process::id()));
+        let path = dir.join("keydibs/ignore");
+        add(&path, "Shift+Right konsole").unwrap();
+        std::fs::write(&path, "# mine\nShift+Right konsole\nCtrl+X  # fine").unwrap();
+        add(&path, "Ctrl+Shift+S micro").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            text,
+            "# mine\nShift+Right konsole\nCtrl+X  # fine\nCtrl+Shift+S micro\n"
+        );
+
+        let (rules, _) = parse(&text, TOOLS);
+        remove(&path, &rules[1]).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "# mine\nShift+Right konsole\nCtrl+Shift+S micro\n"
+        );
+
+        // The file changed since it was read: line 3 isn't `Ctrl+Shift+S micro` now.
+        let error = remove(&path, &rules[2]).unwrap_err();
+        assert!(error.to_string().contains("changed"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

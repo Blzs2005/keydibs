@@ -21,4 +21,6 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libxkbcommon0 xkb-data
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
+      # keydibs also builds without the app, for a CLI-only install.
+      - run: cargo clippy --all-targets --no-default-features -- -D warnings
       - run: cargo test

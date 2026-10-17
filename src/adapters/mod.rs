@@ -26,6 +26,9 @@ pub mod zsh;
 pub trait Adapter {
     fn tool(&self) -> &'static str;
     fn layer(&self) -> Layer;
+    /// Where the user changes the tool's shortcuts, like `System Settings →
+    /// Keyboard → Shortcuts` or `~/.config/micro/bindings.json`.
+    fn where_to_change(&self) -> &'static str;
     /// The tool's bindings, or `Ok(None)` when the tool isn't set up on this machine.
     fn load(&self) -> anyhow::Result<Option<Vec<Binding>>>;
     /// Things worth telling the user about the results, like an installed version
@@ -62,7 +65,7 @@ pub(crate) fn on_path(name: &str) -> bool {
 }
 
 /// `$XDG_DATA_HOME`, falling back to `~/.local/share`.
-pub(crate) fn data_home() -> Option<PathBuf> {
+pub fn data_home() -> Option<PathBuf> {
     std::env::var_os("XDG_DATA_HOME")
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)

@@ -73,6 +73,10 @@ impl Adapter for Nvim {
         Layer::App
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "vim.keymap.set in ~/.config/nvim/init.lua"
+    }
+
     /// Neovim 0.10 and later turn it on in terminals that support it.
     fn kitty_keyboard(&self) -> bool {
         true

@@ -12,6 +12,8 @@ pub mod conflict;
 pub mod ignore;
 pub mod layout;
 pub mod reach;
+pub mod report;
+pub mod scan;
 
 pub use binding::{Binding, Layer, Source};
 pub use chord::{Chord, Key, Mods};

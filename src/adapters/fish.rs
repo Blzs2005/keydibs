@@ -32,6 +32,10 @@ impl Adapter for Fish {
         Layer::Shell
     }
 
+    fn where_to_change(&self) -> &'static str {
+        "a bind line in ~/.config/fish/config.fish"
+    }
+
     /// fish 4 turns it on in terminals that support it.
     fn kitty_keyboard(&self) -> bool {
         true
