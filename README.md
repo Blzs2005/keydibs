@@ -89,8 +89,8 @@ can't arrive Ctrl+Shift+S
 ```
 
 The *kitty keyboard protocol* fixes this, but only when the terminal supports it
-**and** the program turns it on. Alacritty, Konsole, fish and Neovim do; micro
-doesn't. keydibs only reports what really can't arrive.
+**and** the program turns it on. Alacritty, Konsole, fish and Neovim do; micro,
+bash and zsh don't. keydibs only reports what really can't arrive.
 
 </details>
 
@@ -124,6 +124,8 @@ Change the shortcut you care about less in its tool, then run `keydibs` again.
 | Konsole | Settings → Configure Keyboard Shortcuts (`Ctrl+Alt+,`) |
 | Alacritty | the `[keyboard]` section of `~/.config/alacritty/alacritty.toml` |
 | fish | a `bind` line in `~/.config/fish/config.fish` |
+| bash | `~/.inputrc`, or a `bind` line in `~/.bashrc` |
+| zsh | a `bindkey` line in `~/.zshrc` |
 | micro | `~/.config/micro/bindings.json` |
 | Neovim | `vim.keymap.set` in `~/.config/nvim/init.lua` |
 
@@ -174,7 +176,7 @@ Key combinations aren't case-sensitive (`ctrl+shift+c` works), and `Meta` and
 | **Desktop** | KDE Plasma, Hyprland | Sway, niri, GNOME |
 | **Terminal** | Alacritty, Konsole | kitty, WezTerm, foot, Ghostty |
 | **Terminal multiplexer** | | tmux, Zellij |
-| **Shell** | fish | zsh, bash |
+| **Shell** | fish, bash, zsh | |
 | **Editor** | micro, Neovim | Helix |
 
 Tools you don't have are skipped. Missing one you use?
@@ -208,6 +210,10 @@ A shortcut only counts as blocked when the key really can't get through:
   a different version, keydibs says so, since a few shortcuts may differ.
 - **fish** sets up most of its shortcuts when it starts, so keydibs starts fish with
   your config (minus the greeting) and asks it, just like opening a new terminal does.
+- **bash and zsh** are asked the same way, but only the one that's your login shell:
+  most systems have both installed, and you only use one. For a shortcut you changed,
+  keydibs shows the line in your config files (or your framework's, like oh-my-zsh)
+  that sets it; one set from code shows as *set at runtime*.
 - **Neovim** is asked the same way: keydibs starts a hidden `nvim --headless` with
   your config and plugins, and reads its mappings and where each one was made.
   Vim's built-in commands (`Ctrl+W`, `Ctrl+R` in Insert mode…) come from the

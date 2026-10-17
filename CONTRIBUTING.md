@@ -48,7 +48,9 @@ to read one tool's keybindings. These are good ones to learn from:
    - `then`: the rest of a key *sequence* (`Ctrl+X, Ctrl+E`, a tmux prefix, a Vim
      leader sequence). The first key goes in `chord`.
    - `source`: `Source::Config { path, line }` when you can point to a file (and line),
-     `Source::Default` for the tool's built-ins, `Source::Runtime` otherwise.
+     `Source::Default` for the tool's built-ins, `Source::Runtime` otherwise. If the
+     tool can't say where a binding was made, `ConfigFiles` can look for the line
+     in the files it read (see `bash.rs` and `zsh.rs`).
 
 4. **Skip what you can't represent** instead of guessing: mouse bindings, raw
    scancodes, and modifiers keydibs doesn't model (Caps Lock, Hyper). Note what's

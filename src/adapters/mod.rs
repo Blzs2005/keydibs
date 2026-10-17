@@ -2,16 +2,17 @@
 //! defaults, where it has them) and turns it into [`Binding`]s.
 
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::mpsc;
+use std::sync::{OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use anyhow::bail;
 
-use crate::binding::{Binding, Layer};
+use crate::binding::{Binding, Layer, Source};
 
 pub mod alacritty;
+pub mod bash;
 mod escape;
 pub mod fish;
 pub mod hyprland;
@@ -19,6 +20,7 @@ pub mod kde;
 pub mod konsole;
 pub mod micro;
 pub mod nvim;
+pub mod zsh;
 
 pub trait Adapter {
     fn tool(&self) -> &'static str;
@@ -44,6 +46,8 @@ pub fn all() -> Vec<Box<dyn Adapter>> {
         Box::new(alacritty::Alacritty),
         Box::new(konsole::Konsole),
         Box::new(fish::Fish),
+        Box::new(bash::Bash),
+        Box::new(zsh::Zsh),
         Box::new(micro::Micro),
         Box::new(nvim::Nvim::default()),
     ]
@@ -158,6 +162,86 @@ fn same_version(installed: &str, expected: &str) -> bool {
     let want: Vec<&str> = expected.split('.').collect();
     let have: Vec<&str> = installed.split('.').collect();
     have.len() >= want.len() && have[..want.len()] == want[..]
+}
+
+/// Config files to point at when a tool can't say where a binding was made.
+pub(crate) struct ConfigFiles(Vec<(PathBuf, String)>);
+
+impl ConfigFiles {
+    /// Reads each of `paths` once, skipping the ones that can't be read.
+    pub(crate) fn read(paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        let mut files: Vec<(PathBuf, String)> = Vec::new();
+        for path in paths {
+            if files.iter().any(|(read, _)| *read == path) {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                files.push((path, text));
+            }
+        }
+        ConfigFiles(files)
+    }
+
+    /// The first line outside a comment that `matches`, as the binding's
+    /// source; `Source::Runtime` if there's none.
+    pub(crate) fn find(&self, matches: impl Fn(&str) -> bool) -> Source {
+        for (path, text) in &self.0 {
+            for (i, line) in text.lines().enumerate() {
+                let line = line.trim_start();
+                if !line.starts_with('#') && matches(line) {
+                    return Source::Config {
+                        path: path.clone(),
+                        line: Some(i + 1),
+                    };
+                }
+            }
+        }
+        Source::Runtime
+    }
+}
+
+#[cfg(test)]
+impl ConfigFiles {
+    pub(crate) fn fixture(files: &[(&str, &str)]) -> Self {
+        ConfigFiles(
+            files
+                .iter()
+                .map(|&(path, text)| (PathBuf::from(path), text.to_string()))
+                .collect(),
+        )
+    }
+}
+
+/// Whether `shell` (like `zsh`) is the user's login shell. Most systems have
+/// several shells installed, but only one is used.
+pub(crate) fn is_login_shell(shell: &str) -> bool {
+    static LOGIN_SHELL: OnceLock<Option<PathBuf>> = OnceLock::new();
+    LOGIN_SHELL
+        .get_or_init(|| {
+            user_database_shell().or_else(|| std::env::var_os("SHELL").map(PathBuf::from))
+        })
+        .as_deref()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == shell)
+}
+
+/// The shell in the user's entry in the user database, which `chsh` sets.
+/// `$SHELL` is only a fallback: whatever started keydibs may have changed it.
+fn user_database_shell() -> Option<PathBuf> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let uid = status
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))?
+        .split_whitespace()
+        .next()?;
+    let output = run(
+        Command::new("getent").args(["passwd", uid]),
+        COMMAND_TIMEOUT,
+    )
+    .ok()?;
+    let entry = String::from_utf8_lossy(&output.stdout);
+    let shell = entry.trim_end().rsplit(':').next()?;
+    (output.status.success() && !shell.is_empty()).then(|| PathBuf::from(shell))
 }
 
 /// Long actions (inline shell commands, say) get cut to this many characters.

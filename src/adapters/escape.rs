@@ -30,6 +30,52 @@ pub(crate) fn decode(sequence: &str) -> Option<Chord> {
     }
 }
 
+/// The keys `sequence` stands for when it's several key presses in a row, like
+/// `\x18\x05` (Ctrl+X, Ctrl+E). `None` if any of them isn't a key.
+pub(crate) fn decode_keys(sequence: &str) -> Option<Vec<Chord>> {
+    let mut keys = Vec::new();
+    let mut rest = sequence;
+    while !rest.is_empty() {
+        let len = key_length(rest)?;
+        keys.push(decode(&rest[..len])?);
+        rest = &rest[len..];
+    }
+    Some(keys)
+}
+
+/// The length in bytes of the first key press in `sequence`.
+fn key_length(sequence: &str) -> Option<usize> {
+    let first = sequence.chars().next()?;
+    if first != ESC {
+        return Some(first.len_utf8());
+    }
+    let rest = &sequence[1..];
+    match rest.chars().next() {
+        None => Some(1),
+        // Parameters, then a final character from `@` to `~`.
+        Some('[') => {
+            let end = rest[1..].find(|c: char| ('@'..='~').contains(&c))?;
+            Some(2 + end + 1)
+        }
+        Some('O') if rest.len() > 1 => Some(2 + rest[1..].chars().next()?.len_utf8()),
+        // Alt and a key that's itself a sequence, like Alt+Up.
+        Some(ESC) => Some(1 + key_length(rest)?),
+        Some(c) => Some(1 + c.len_utf8()),
+    }
+}
+
+/// The control character `Ctrl` and `c` type: `a` is `\x01`, `[` is Escape,
+/// `?` is Delete.
+pub(crate) fn control_char(c: char) -> Option<char> {
+    if c == '?' {
+        return Some('\x7f');
+    }
+    let upper = c.to_ascii_uppercase();
+    ('@'..='_')
+        .contains(&upper)
+        .then_some((upper as u8 ^ 0x40) as char)
+}
+
 /// A key press that's a single character: a control character, or a printable
 /// one (uppercase letters meaning Shift).
 fn control(c: char) -> Option<Chord> {
@@ -63,6 +109,10 @@ fn csi(body: &str) -> Option<Chord> {
         })
         .collect::<Option<_>>()?;
     let first = params.first().copied().unwrap_or(1);
+    // `CSI 5 D` (rxvt's Ctrl+Left) isn't xterm's encoding; don't guess.
+    if params.len() == 1 && first != 1 && !matches!(last, '~' | 'u') {
+        return None;
+    }
     let mods = modifiers(params.get(1).copied().unwrap_or(1))?;
 
     let key = match last {
@@ -210,7 +260,40 @@ mod tests {
     }
 
     #[test]
+    fn several_key_presses() {
+        let keys = |sequence: &str| {
+            decode_keys(sequence).map(|keys| {
+                keys.iter()
+                    .map(Chord::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+        };
+        assert_eq!(keys("\x18\x05").as_deref(), Some("Ctrl+X, Ctrl+E"));
+        assert_eq!(keys("\x18e").as_deref(), Some("Ctrl+X, E"));
+        assert_eq!(keys("\x1b[1;5C").as_deref(), Some("Ctrl+Right"));
+        assert_eq!(keys("\x1b\x1b[D").as_deref(), Some("Alt+Left"));
+        assert_eq!(keys("\x1b\x1b").as_deref(), Some("Alt+Esc"));
+        assert_eq!(keys("\x1bOH").as_deref(), Some("Home"));
+        assert_eq!(keys("\x1b\x07").as_deref(), Some("Ctrl+Alt+G"));
+        assert_eq!(keys("\x18\x1b[A").as_deref(), Some("Ctrl+X, Up"));
+        assert_eq!(keys("\x1b["), None);
+        assert_eq!(keys("\x1b[200~"), None);
+    }
+
+    #[test]
+    fn control_characters() {
+        assert_eq!(control_char('a'), Some('\x01'));
+        assert_eq!(control_char('X'), Some('\x18'));
+        assert_eq!(control_char('['), Some('\x1b'));
+        assert_eq!(control_char('@'), Some('\0'));
+        assert_eq!(control_char('?'), Some('\x7f'));
+        assert_eq!(control_char('1'), None);
+    }
+
+    #[test]
     fn unknown_sequences() {
+        assert_eq!(decoded("\x1b[5D"), None);
         assert_eq!(decoded("\x1b\u{f50e}ep"), None);
         assert_eq!(decoded("\x1b[1;99A"), None);
         assert_eq!(decoded("\x1b[?1049h"), None);
