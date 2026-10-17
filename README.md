@@ -5,8 +5,7 @@ Find keyboard shortcuts that clash between your desktop, terminal, shell and edi
 You press a shortcut in your editor and nothing happens. Usually another tool took
 the keys first: your desktop, terminal and shell all see a key press before your
 editor does. keydibs reads the shortcuts of every tool you use, including the
-built-in ones nobody wrote down, and tells you which ones clash, in your terminal
-or in its app.
+built-in ones nobody wrote down, and shows you which ones clash.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/app-dark.png">
@@ -17,83 +16,33 @@ or in its app.
 
 ```sh
 cargo install keydibs
+keydibs install-desktop
 ```
 
-keydibs runs on Linux. If `cargo` isn't found, install Rust from [rustup.rs](https://rustup.rs).
-For just the command line, without the app: `cargo install keydibs --no-default-features`.
+The second line adds keydibs to your app launcher, so it opens like any other app.
+`keydibs gui` opens it too. keydibs runs on Linux. If `cargo` isn't found, install
+Rust from [rustup.rs](https://rustup.rs).
 
 ## Use
 
-```sh
-keydibs
-```
-
 There's nothing to set up. keydibs finds the tools you have and only **reads** their
-settings, never changes them. Each clash looks like this:
+settings, never changes them.
 
-```console
-shadowed   Shift+Right
-  micro "SelectRight" (built-in default)
-  is blocked by konsole "Next Tab (with 2+ tabs)" (built-in default)
-```
-
-micro wants `Shift+Right` to select text, but Konsole takes it first to switch tabs,
-though only while you have more than one tab open. *(built-in default)* means it's how
-the tool ships; for shortcuts you set yourself, keydibs shows the file and line.
-
-To see every tool that uses a key combination, and which one gets it:
-
-```console
-$ keydibs why ctrl+alt+h
-Ctrl+Alt+H
-  terminal    konsole    takes it              SSH Manager: Quick Access  (built-in default)
-  shell       fish       SHADOWED by konsole   backward-kill-word  (built-in default)
-  app         micro      SHADOWED by konsole   DeleteWordLeft  (built-in default)
-```
-
-<details>
-<summary><b>Full example output</b></summary>
-
-On a fresh CachyOS install (KDE, Alacritty, Konsole, fish and micro, Hungarian
-keyboard), before changing any setting:
-
-```console
-$ keydibs
-scanned kde (compositor): 112 bindings
-scanned alacritty (terminal): 90 bindings
-scanned konsole (terminal): 77 bindings
-scanned fish (shell): 99 bindings
-scanned micro (app): 156 bindings
-keyboard layout: hu
-
-shadowed   Ctrl+Alt+H
-  fish "backward-kill-word" (built-in default)
-  is blocked by konsole "SSH Manager: Quick Access" (built-in default)
-
-shadowed   Shift+Right
-  micro "SelectRight" (built-in default)
-  is blocked by konsole "Next Tab (with 2+ tabs)" (built-in default)
-…
-21 conflicts in 534 bindings
-```
-
-The first lines list the tools keydibs found and your keyboard layout. `keydibs`
-exits with code 1 when it finds anything, so you can use it in scripts.
-
-</details>
+- **Clashes** lists every clash. In the screenshot, micro wants `Ctrl+PageDown` to
+  switch tabs, but Konsole takes it first to switch its own tabs. Each shortcut shows
+  where it was set: *built-in default* is how the tool ships, and for shortcuts you
+  set yourself it's the file and line, which opens in your editor.
+- **Look up a key** shows every tool that uses a key combination, in the order a key
+  press reaches them, and which one gets it. Type the keys or just press them.
+- **All shortcuts** lists every shortcut keydibs found, to search and sort.
 
 <details>
 <summary><b>Shortcuts that can't arrive</b></summary>
 
 Some key combinations can't get through a terminal at all. Most terminals send
 `Ctrl+Shift+S` exactly like `Ctrl+S`, `Shift+Enter` like `Enter`, and don't pass
-Super on, so a shell or editor bound to one of those never sees it:
-
-```console
-can't arrive Ctrl+Shift+S
-  micro "SaveAll" (~/.config/micro/bindings.json:2)
-  alacritty and konsole send it as Ctrl+S, because micro doesn't use the kitty keyboard protocol
-```
+Super on, so a shell or editor bound to one of those never sees it. keydibs marks
+these *Can't arrive*.
 
 The *kitty keyboard protocol* fixes this, but only when the terminal supports it
 **and** the program turns it on. Alacritty, Konsole, fish and Neovim do; micro,
@@ -107,32 +56,15 @@ bash and zsh don't. keydibs only reports what really can't arrive.
 On a Hungarian keyboard `(` is Shift+8; on a US one it's Shift+9. Tools write such
 shortcuts either way (`Ctrl+(` or `Ctrl+Shift+8`), so keydibs compares the keys you
 actually press on your layout. That's why it shows `Ctrl+(` as `Ctrl+Shift+8` on a
-Hungarian layout, and why it finds clashes that only exist on some layouts:
-
-```console
-shadowed   Ctrl+Shift+6
-  fish "undo" (built-in default)
-  is blocked by konsole "Copy Input to None" (built-in default)
-```
+Hungarian layout, and why it finds clashes that only exist on some layouts, like
+Konsole's *Copy Input to None* taking `Ctrl+Shift+6` from fish's *undo*.
 
 </details>
 
-## The app
-
-```sh
-keydibs gui
-```
-
-The app shows the same clashes, and lets you look up a key by pressing it, search
-every shortcut, and ignore a clash with a click. Run `keydibs install-desktop` once
-to open it from your app launcher like any other app.
-
-The only file it writes is your [ignore list](#clashes-you-dont-mind).
-
 ## Fix a clash
 
-Change the shortcut you care about less in its tool, then run `keydibs` again (or
-click *Scan again* in the app).
+Change the shortcut you care about less in its tool, then click **Scan again**. Each
+clash says where to change it.
 
 <details>
 <summary><b>Where each tool keeps its shortcuts</b></summary>
@@ -154,44 +86,77 @@ click *Scan again* in the app).
 
 ### Clashes you don't mind
 
-List them in `~/.config/keydibs/ignore`, one per line, written the way keydibs
-prints them:
+Click **Ignore** on a clash, and choose whether to ignore it for one tool or every
+clash on those keys. **Show ignored** brings them back into view, with a **Stop
+ignoring** button. They're saved in `~/.config/keydibs/ignore`, the only file
+keydibs writes.
+
+<details>
+<summary><b>Editing the ignore list by hand</b></summary>
+
+One line per clash, with the keys as keydibs shows them, optionally followed by the
+tools it's about:
 
 ```sh
 Ctrl+Shift+Up          # every clash on these keys
 Shift+Right konsole    # only the ones Konsole is part of
 ```
 
-keydibs leaves them out and exits with 0 if nothing else is left.
-`keydibs check --no-ignore` shows everything again. In the app, the *Ignore* button
-on a clash adds the line for you.
-
-<details>
-<summary><b>More about the ignore list</b></summary>
-
-- Name one or more tools after the keys to limit a line to clashes those tools are
-  part of. `Shift+Right konsole` also covers Konsole blocking your shell; other
-  terminals still get checked.
+- Naming tools limits a line to clashes they're part of. `Shift+Right konsole` also
+  covers Konsole blocking your shell; other terminals still get checked.
 - A line covers key sequences that start with its keys: `Ctrl+X` also covers
   `Ctrl+X, Ctrl+E`.
 - `#` starts a comment.
-- keydibs says how many clashes it left out, and points out lines that match
-  nothing, which catches typos and clashes you've fixed since.
+- Lines that match nothing are pointed out, which catches typos and clashes you've
+  fixed since.
 
 </details>
 
-## Commands
+## In a terminal
+
+<details>
+<summary><b>Using keydibs from the command line</b></summary>
+
+`keydibs` on its own lists every clash. On a fresh CachyOS install (KDE, Alacritty,
+Konsole, fish and micro, Hungarian keyboard):
+
+```console
+$ keydibs
+scanned kde (compositor): 112 bindings
+scanned alacritty (terminal): 90 bindings
+scanned konsole (terminal): 77 bindings
+scanned fish (shell): 99 bindings
+scanned micro (app): 156 bindings
+keyboard layout: hu
+
+shadowed   Shift+Right
+  micro "SelectRight" (built-in default)
+  is blocked by konsole "Next Tab (with 2+ tabs)" (built-in default)
+…
+21 conflicts in 534 bindings
+```
+
+```console
+$ keydibs why ctrl+alt+h
+Ctrl+Alt+H
+  terminal    konsole    takes it              SSH Manager: Quick Access  (built-in default)
+  shell       fish       SHADOWED by konsole   backward-kill-word  (built-in default)
+  app         micro      SHADOWED by konsole   DeleteWordLeft  (built-in default)
+```
 
 | Command | What it does |
 |---|---|
-| `keydibs` or `keydibs check` | Lists every clash and every shortcut that can't arrive, and exits with 1 if there are any. `--no-ignore` includes the ignored ones |
+| `keydibs` or `keydibs check` | Lists every clash and every shortcut that can't arrive, and exits with 1 if there are any, so it works in scripts. `--no-ignore` includes the ignored ones |
 | `keydibs why <keys>` | Shows every tool that uses a key combination, and which one gets it |
 | `keydibs list` | Lists every shortcut keydibs found |
 | `keydibs gui` | Opens the app |
 | `keydibs install-desktop` | Adds the app to your app launcher. `--remove` takes it out again |
 
 Key combinations aren't case-sensitive (`ctrl+shift+c` works), and `Meta` and
-`Super` both mean the Windows/logo key.
+`Super` both mean the Windows/logo key. For just the command line, without the app:
+`cargo install keydibs --no-default-features`.
+
+</details>
 
 ## Supported tools
 
