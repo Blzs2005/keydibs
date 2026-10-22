@@ -1,9 +1,10 @@
 # Maintainer: Blzs <81647160+Blzs2005@users.noreply.github.com>
 #
 # The keydibs-bin AUR package: the binaries attached to each GitHub release by
-# .github/workflows/release.yml. For a new release, set pkgver (and pkgrel=1),
-# run `updpkgsums` and `makepkg --printsrcinfo > .SRCINFO`, and push both to
-# ssh://aur@aur.archlinux.org/keydibs-bin.git.
+# .github/workflows/release.yml. That workflow also sets pkgver and the
+# checksums for each release and pushes this to the AUR, so the ones here are
+# only the last ones set by hand. A change to the rest of the file reaches the
+# AUR with the next release, or by running the workflow with "build" off.
 
 pkgname=keydibs-bin
 pkgver=0.8.0

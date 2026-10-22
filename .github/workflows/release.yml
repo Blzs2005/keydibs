@@ -1,8 +1,9 @@
 name: Release
 
 # Builds Linux binaries and attaches them to a GitHub release, for
-# `cargo binstall keydibs` and the keydibs-bin AUR package. Runs when a release
-# is published; run it by hand to (re)build the binaries of an existing release.
+# `cargo binstall keydibs`, then updates the keydibs-bin AUR package to them.
+# Runs when a release is published; run it by hand to redo it for an existing
+# release.
 on:
   release:
     types: [published]
@@ -11,6 +12,10 @@ on:
       tag:
         description: The release's tag, like v0.8.0
         required: true
+      build:
+        description: Build the binaries again (off to only update the AUR package)
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -21,6 +26,7 @@ env:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'release' || inputs.build }}
     strategy:
       matrix:
         include:
@@ -49,3 +55,53 @@ jobs:
       - run: gh release upload "$TAG" keydibs-*.tar.gz keydibs-*.tar.gz.sha256 --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # Points keydibs-bin at the new binaries and pushes it to the AUR, with the
+  # SSH key in the AUR_SSH_KEY secret. Without the secret, it does everything
+  # but the push.
+  aur:
+    needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+    steps:
+      - run: pacman -Syu --noconfirm git openssh pacman-contrib
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      # makepkg won't run as root. Building the package checks that it still
+      # works with the new binaries; their libraries aren't installed here.
+      - name: Update the PKGBUILD
+        run: |
+          useradd -m builder
+          cp -r aur/keydibs-bin /home/builder/pkg
+          cd /home/builder/pkg
+          sed -i "s/^pkgver=.*/pkgver=${TAG#v}/; s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          chown -R builder: .
+          su builder -c 'updpkgsums && makepkg -f --nodeps --noconfirm && makepkg --printsrcinfo > .SRCINFO'
+          cat PKGBUILD .SRCINFO
+      - name: Push to the AUR
+        if: env.AUR_SSH_KEY != ''
+        run: |
+          ssh_dir=$(mktemp -d)
+          printf '%s\n' "$AUR_SSH_KEY" > "$ssh_dir/key"
+          chmod 600 "$ssh_dir/key"
+          # The AUR's published key: SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4
+          echo 'aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN' > "$ssh_dir/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh_dir/known_hosts"
+
+          git clone ssh://aur@aur.archlinux.org/keydibs-bin.git aur-repo
+          cp /home/builder/pkg/PKGBUILD /home/builder/pkg/.SRCINFO aur-repo/
+          cd aur-repo
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "keydibs-bin is already up to date"
+            exit 0
+          fi
+          git -c user.name=Blzs -c user.email=81647160+Blzs2005@users.noreply.github.com \
+            commit -m "keydibs-bin ${TAG#v}"
+          git push origin HEAD:master
+      - if: env.AUR_SSH_KEY == ''
+        run: echo "::notice::AUR_SSH_KEY isn't set, so keydibs-bin wasn't pushed to the AUR"
