@@ -68,9 +68,10 @@ jobs:
       AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
     steps:
       - run: pacman -Syu --noconfirm git openssh pacman-contrib
+      # The PKGBUILD as it is now, which can be newer than the release.
       - uses: actions/checkout@v5
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ github.event.repository.default_branch }}
       # makepkg won't run as root. Building the package checks that it still
       # works with the new binaries; their libraries aren't installed here.
       - name: Update the PKGBUILD
