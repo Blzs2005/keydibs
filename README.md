@@ -46,7 +46,12 @@ these *Can't arrive*.
 
 The *kitty keyboard protocol* fixes this, but only when the terminal supports it
 **and** the program turns it on. Alacritty, Konsole, fish and Neovim do; micro,
-bash and zsh don't. keydibs only reports what really can't arrive.
+bash, zsh and tmux don't. keydibs only reports what really can't arrive.
+
+Inside tmux, a program only gets what tmux passes on, and tmux doesn't pass the
+kitty keyboard protocol on. So keydibs marks fish's `Ctrl+Shift+Z` (redo) as one
+that can't arrive in tmux. With `set -g extended-keys on`, tmux passes more keys on
+if your terminal sends them, and keydibs no longer reports them.
 
 </details>
 
@@ -75,6 +80,7 @@ clash says where to change it.
 | GNOME | Settings → Keyboard → View and Customize Shortcuts |
 | Hyprland | your Hyprland config |
 | Konsole | Settings → Configure Keyboard Shortcuts (`Ctrl+Alt+,`) |
+| tmux | a `bind` line in `~/.config/tmux/tmux.conf` or `~/.tmux.conf` |
 | Alacritty | the `[keyboard]` section of `~/.config/alacritty/alacritty.toml` |
 | fish | a `bind` line in `~/.config/fish/config.fish` |
 | bash | `~/.inputrc`, or a `bind` line in `~/.bashrc` |
@@ -164,7 +170,7 @@ Key combinations aren't case-sensitive (`ctrl+shift+c` works), and `Meta` and
 |---|---|---|
 | **Desktop** | KDE Plasma, GNOME, Hyprland | Sway, niri |
 | **Terminal** | Alacritty, Konsole | kitty, WezTerm, foot, Ghostty |
-| **Terminal multiplexer** | | tmux, Zellij |
+| **Terminal multiplexer** | tmux | Zellij |
 | **Shell** | fish, bash, zsh | |
 | **Editor** | micro, Neovim | Helix |
 
@@ -207,6 +213,13 @@ A shortcut only counts as blocked when the key really can't get through:
   your config and plugins, and reads its mappings and where each one was made.
   Vim's built-in commands (`Ctrl+W`, `Ctrl+R` in Insert mode…) come from the
   `:help index` of the Neovim you have installed.
+- **tmux** is asked too, by a separate tmux server that loads your config, lists its
+  shortcuts and quits, so your sessions are never touched. Its prefix key (`Ctrl+B`)
+  takes that key from your shell and editor; the shortcuts after it are listed as
+  `Ctrl+B, C`, and the same after a second prefix key, if you set one. Keys that switch
+  to another key table lead into it, so tmux's move mode shows as `Ctrl+B, G, Up`.
+  It's only read if you use it: you have a tmux config, a tmux server is running, or
+  keydibs runs inside tmux.
 - **GNOME** is read with `gsettings`, only in a GNOME session, since other desktops
   install its settings too. Shortcuts you changed point to GNOME's settings database.
 - **Hyprland** is read from the running desktop, so it has to be running. If it isn't,

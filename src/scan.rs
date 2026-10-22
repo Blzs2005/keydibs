@@ -29,6 +29,7 @@ pub struct Found {
     pub bindings: Vec<Binding>,
     pub tools: Vec<Tool>,
     pub skipped: Vec<Skipped>,
+    /// Terminals, and multiplexers, which are terminals for the programs inside.
     pub terminals: Vec<reach::Terminal>,
     /// Shells and apps that turn on the kitty keyboard protocol.
     pub kitty_programs: Vec<&'static str>,
@@ -55,9 +56,10 @@ pub fn load(mut on_event: impl FnMut(Event)) -> Found {
                 };
                 on_event(Event::Scanned(&tool));
                 match tool.layer {
-                    Layer::Terminal => found.terminals.push(reach::Terminal {
+                    Layer::Terminal | Layer::Multiplexer => found.terminals.push(reach::Terminal {
                         tool: tool.name,
                         kitty_keyboard: adapter.kitty_keyboard(),
+                        layer: tool.layer,
                     }),
                     Layer::Compositor => {}
                     _ if adapter.kitty_keyboard() => found.kitty_programs.push(tool.name),

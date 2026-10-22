@@ -225,7 +225,7 @@ fn why(bindings: &[Binding], chord: &Chord) {
         println!("  nothing binds this");
         return;
     }
-    for b in &chain {
+    for (b, count) in conflict::folded(&chain) {
         let shadowers = conflict::shadowed_by(&chain, b);
         let verdict = if shadowers.is_empty() {
             b.grabs.to_string()
@@ -233,18 +233,18 @@ fn why(bindings: &[Binding], chord: &Chord) {
             let tools: Vec<_> = shadowers.iter().map(|s| s.tool).collect();
             format!("SHADOWED by {}", tools.join(", "))
         };
-        let keys = if b.then.is_empty() {
-            String::new()
-        } else {
-            format!("[{}] ", b.keys())
+        let (keys, action, set_in) = match count {
+            1 if b.then.is_empty() => (String::new(), b.describe(), source(&b.source)),
+            1 => (format!("[{}] ", b.keys()), b.describe(), source(&b.source)),
+            _ => (
+                format!("[{}, …] ", b.chord),
+                format!("{count} shortcuts that start with these keys"),
+                "keydibs list shows them".to_string(),
+            ),
         };
         println!(
-            "  {:<11} {:<10} {:<34} {keys}{}  ({})",
-            b.layer,
-            b.tool,
-            verdict,
-            b.describe(),
-            source(&b.source)
+            "  {:<11} {:<10} {:<34} {keys}{action}  ({set_in})",
+            b.layer, b.tool, verdict,
         );
     }
 }

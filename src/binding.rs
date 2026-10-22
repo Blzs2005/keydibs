@@ -107,7 +107,7 @@ pub struct Binding {
     /// Bindings in different modes never compete with each other.
     pub mode: Option<String>,
     /// Keys pressed after `chord` to complete a sequence like `Ctrl+X, Ctrl+E`.
-    /// Only `chord` matters for shadowing: if it never arrives, nor does the rest.
+    /// They travel down the layers too, so a layer above can take any of them.
     pub then: Vec<Chord>,
     pub source: Source,
 }

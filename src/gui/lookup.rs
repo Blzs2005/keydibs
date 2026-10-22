@@ -136,7 +136,7 @@ fn table(ui: &mut egui::Ui, view: &mut View, chain: &[&Binding]) {
                 ui.strong(heading);
             }
             ui.end_row();
-            for binding in chain {
+            for (binding, count) in conflict::folded(chain) {
                 ui.label(layer_name(binding.layer));
                 ui.label(RichText::new(binding.tool).strong());
                 let blockers = conflict::shadowed_by(chain, binding);
@@ -152,6 +152,15 @@ fn table(ui: &mut egui::Ui, view: &mut View, chain: &[&Binding]) {
                         RichText::new(format!("blocked by {}", tools.join(", ")))
                             .color(ui.visuals().warn_fg_color),
                     );
+                }
+                if count > 1 {
+                    ui.label(format!(
+                        "[{}, …] {count} shortcuts that start with these keys",
+                        binding.chord
+                    ));
+                    ui.label(RichText::new("All shortcuts lists them").weak());
+                    ui.end_row();
+                    continue;
                 }
                 let action = if binding.then.is_empty() {
                     binding.describe()

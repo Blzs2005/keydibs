@@ -25,6 +25,48 @@ pub fn chain<'a>(bindings: &'a [Binding], chord: &Chord) -> Vec<&'a Binding> {
     hits
 }
 
+/// Whether `b` is a sequence that starts on a key its own tool also takes by
+/// itself, like tmux's `Ctrl+B, C` after its prefix key `Ctrl+B`. Whatever
+/// happens to that key happens to the whole sequence, so it's reported once,
+/// for the key.
+pub fn led_by_own_key<'a>(b: &Binding, mut others: impl Iterator<Item = &'a Binding>) -> bool {
+    !b.then.is_empty()
+        && others.any(|lead| {
+            lead.then.is_empty()
+                && lead.chord == b.chord
+                && lead.tool == b.tool
+                && lead.mode == b.mode
+                && lead.grabs != Grabs::Never
+        })
+}
+
+/// More sequences than this, of one tool in one mode, are folded into one row.
+const MAX_SEQUENCES: usize = 3;
+
+/// `chain` (as returned by [`chain`]) as rows to show, each with how many
+/// bindings it stands for. When one tool has more than [`MAX_SEQUENCES`]
+/// sequences in one mode that start with the key, like the dozens behind tmux's
+/// prefix key, they're folded into the first of them.
+pub fn folded<'a>(chain: &[&'a Binding]) -> Vec<(&'a Binding, usize)> {
+    let together = |a: &Binding, b: &Binding| {
+        !a.then.is_empty()
+            && !b.then.is_empty()
+            && a.tool == b.tool
+            && a.mode == b.mode
+            && a.grabs == b.grabs
+    };
+    let mut rows: Vec<(&Binding, usize)> = Vec::new();
+    for &b in chain {
+        let count = chain.iter().filter(|other| together(other, b)).count();
+        if count <= MAX_SEQUENCES {
+            rows.push((b, 1));
+        } else if !rows.iter().any(|(first, _)| together(first, b)) {
+            rows.push((b, count));
+        }
+    }
+    rows
+}
+
 /// The bindings in `chain` (as returned by [`chain`]) that take the key away
 /// before it reaches `target`: those in the topmost layer that can grab it,
 /// one per tool. The key travels down, so that layer gets it first.
@@ -62,6 +104,9 @@ pub fn find(bindings: &[Binding]) -> Vec<Conflict<'_>> {
         group.sort_by_key(|b| b.layer);
 
         for loser in group.iter() {
+            if led_by_own_key(loser, group.iter().copied()) {
+                continue;
+            }
             for winner in shadowed_by(group, loser) {
                 conflicts.push(Conflict::Shadowed { winner, loser });
             }
@@ -78,6 +123,21 @@ pub fn find(bindings: &[Binding]) -> Vec<Conflict<'_>> {
                     conflicts.push(Conflict::Duplicate { first, second });
                 }
             }
+        }
+    }
+
+    // The later keys of a sequence travel down the layers too, so a layer above
+    // can take one of them: Konsole's Alt+1 blocks tmux's `Ctrl+B, Alt+1`.
+    for loser in bindings.iter().filter(|b| !b.then.is_empty()) {
+        if !shadowed_by(&by_chord[&loser.chord], loser).is_empty() {
+            continue;
+        }
+        let blocked = loser.then.iter().find_map(|key| {
+            let winners = shadowed_by(by_chord.get(key)?, loser);
+            (!winners.is_empty()).then_some(winners)
+        });
+        for winner in blocked.unwrap_or_default() {
+            conflicts.push(Conflict::Shadowed { winner, loser });
         }
     }
     conflicts
@@ -238,6 +298,95 @@ mod tests {
             ),
         ];
         assert!(find(&bs).is_empty());
+    }
+
+    #[test]
+    fn sequences_after_a_blocked_key_are_reported_once() {
+        let sequence = |then: &str| Binding {
+            then: vec![then.parse().unwrap()],
+            ..bind("Ctrl+B", then, "tmux", Layer::Multiplexer)
+        };
+        let bs = [
+            bind("Ctrl+B", "Something", "konsole", Layer::Terminal),
+            bind("Ctrl+B", "prefix key", "tmux", Layer::Multiplexer),
+            sequence("c"),
+            sequence("n"),
+            // A sequence with no binding on its first key is still reported.
+            Binding {
+                then: vec!["ctrl+e".parse().unwrap()],
+                ..bind("Ctrl+B", "edit", "fish", Layer::Shell)
+            },
+        ];
+        let losers: Vec<_> = find(&bs)
+            .iter()
+            .map(|c| match c {
+                Conflict::Shadowed { loser, .. } => loser.keys(),
+                Conflict::Duplicate { .. } => panic!("no duplicates here"),
+            })
+            .collect();
+        assert_eq!(losers, ["Ctrl+B", "Ctrl+B, Ctrl+E"]);
+    }
+
+    #[test]
+    fn later_keys_of_a_sequence_can_be_taken() {
+        let sequence = |first: &str, then: &str| Binding {
+            then: vec![then.parse().unwrap()],
+            ..bind(first, "select-layout", "tmux", Layer::Multiplexer)
+        };
+        let bs = [
+            bind("Alt+1", "Switch to Tab 1", "konsole", Layer::Terminal),
+            bind("Ctrl+B", "prefix key", "tmux", Layer::Multiplexer),
+            sequence("Ctrl+B", "Alt+1"),
+            sequence("Ctrl+B", "Alt+2"),
+            // Its first key is blocked already, which says it all.
+            bind("Alt+2", "Switch to Tab 2", "konsole", Layer::Terminal),
+            sequence("Alt+2", "Alt+1"),
+        ];
+        assert_eq!(
+            find(&bs),
+            vec![
+                Conflict::Shadowed {
+                    winner: &bs[4],
+                    loser: &bs[5]
+                },
+                Conflict::Shadowed {
+                    winner: &bs[0],
+                    loser: &bs[2]
+                },
+                Conflict::Shadowed {
+                    winner: &bs[4],
+                    loser: &bs[3]
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn many_sequences_of_one_tool_fold_together() {
+        let sequence = |then: &str, tool| Binding {
+            then: vec![then.parse().unwrap()],
+            ..bind("Ctrl+B", then, tool, Layer::Multiplexer)
+        };
+        let mut bs = vec![
+            bind("Ctrl+B", "prefix key", "tmux", Layer::Multiplexer),
+            bind("Ctrl+B", "backward-char", "fish", Layer::Shell),
+        ];
+        bs.extend(["c", "n", "p", "d"].map(|key| sequence(key, "tmux")));
+        bs.push(sequence("x", "other"));
+        let chain = chain(&bs, &"ctrl+b".parse().unwrap());
+        let rows: Vec<_> = folded(&chain)
+            .iter()
+            .map(|(b, count)| (b.keys(), *count))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Ctrl+B".to_string(), 1),
+                ("Ctrl+B, C".to_string(), 4),
+                ("Ctrl+B, X".to_string(), 1),
+                ("Ctrl+B".to_string(), 1),
+            ]
+        );
     }
 
     #[test]

@@ -21,6 +21,7 @@ pub mod kde;
 pub mod konsole;
 pub mod micro;
 pub mod nvim;
+pub mod tmux;
 pub mod zsh;
 
 pub trait Adapter {
@@ -37,7 +38,8 @@ pub trait Adapter {
         Vec::new()
     }
     /// For a terminal: whether it supports the kitty keyboard protocol, which can
-    /// send every key combination. For a shell or app: whether it turns it on.
+    /// send every key combination. For a multiplexer: whether it passes such keys
+    /// on to the programs inside it. For a shell or app: whether it turns it on.
     fn kitty_keyboard(&self) -> bool {
         false
     }
@@ -50,6 +52,7 @@ pub fn all() -> Vec<Box<dyn Adapter>> {
         Box::new(hyprland::Hyprland),
         Box::new(alacritty::Alacritty),
         Box::new(konsole::Konsole),
+        Box::new(tmux::Tmux::default()),
         Box::new(fish::Fish),
         Box::new(bash::Bash),
         Box::new(zsh::Zsh),

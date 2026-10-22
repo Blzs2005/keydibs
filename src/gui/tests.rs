@@ -52,6 +52,7 @@ fn app(ignore_path: PathBuf) -> Harness<'static, App> {
         terminals: vec![Terminal {
             tool: "konsole",
             kitty_keyboard: true,
+            layer: Layer::Terminal,
         }],
         ..Found::default()
     };

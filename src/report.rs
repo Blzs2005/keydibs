@@ -101,8 +101,9 @@ pub fn explain(u: &Unreachable) -> String {
     } else if u.works_in.is_empty() {
         format!("{sent}; it needs a terminal with the kitty keyboard protocol")
     } else {
+        let has = if u.works_in.len() == 1 { "has" } else { "have" };
         format!(
-            "{sent}; it only arrives in {}, which has the kitty keyboard protocol",
+            "{sent}; it only arrives in {}, which {has} the kitty keyboard protocol",
             list(&u.works_in)
         )
     }

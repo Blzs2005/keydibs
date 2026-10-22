@@ -8,6 +8,7 @@
 
 use crate::binding::{Binding, Layer};
 use crate::chord::{Chord, Key, Mods};
+use crate::conflict;
 
 /// How a terminal without the kitty keyboard protocol sends a key press.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,11 +75,15 @@ fn same_as(mods: Mods, key: &str) -> Legacy {
     }
 }
 
-/// A terminal that's set up, and whether it supports the kitty keyboard protocol.
+/// A terminal that's set up, or a multiplexer like tmux, which is a terminal for
+/// the programs inside it. `kitty_keyboard` is whether it can send them every
+/// key combination: whether a terminal supports the kitty keyboard protocol, or
+/// a multiplexer passes such keys on.
 #[derive(Debug, Clone, Copy)]
 pub struct Terminal {
     pub tool: &'static str,
     pub kitty_keyboard: bool,
+    pub layer: Layer,
 }
 
 /// A shortcut that can't arrive in some or all of the terminals.
@@ -97,8 +102,8 @@ pub struct Unreachable<'a> {
 }
 
 /// Every shortcut of a shell, multiplexer or app that can't arrive in at least
-/// one of `terminals`. `kitty_programs` are the tools that turn on the kitty
-/// keyboard protocol.
+/// one of `terminals` above it. `kitty_programs` are the tools that turn on the
+/// kitty keyboard protocol.
 pub fn unreachable<'a>(
     bindings: &'a [Binding],
     terminals: &[Terminal],
@@ -115,10 +120,14 @@ pub fn unreachable<'a>(
         }) else {
             continue;
         };
+        if key == binding.chord && conflict::led_by_own_key(binding, bindings.iter()) {
+            continue;
+        }
 
         let asks = kitty_programs.contains(&binding.tool);
         let (works_in, fails_in): (Vec<&Terminal>, Vec<&Terminal>) = terminals
             .iter()
+            .filter(|terminal| terminal.layer < binding.layer)
             .partition(|terminal| asks && terminal.kitty_keyboard);
         if !works_in.is_empty() && fails_in.is_empty() {
             continue;
@@ -209,11 +218,64 @@ mod tests {
     const ALACRITTY: Terminal = Terminal {
         tool: "alacritty",
         kitty_keyboard: true,
+        layer: Layer::Terminal,
     };
     const OLD_TERM: Terminal = Terminal {
         tool: "oldterm",
         kitty_keyboard: false,
+        layer: Layer::Terminal,
     };
+    const TMUX: Terminal = Terminal {
+        tool: "tmux",
+        kitty_keyboard: false,
+        layer: Layer::Multiplexer,
+    };
+
+    #[test]
+    fn programs_inside_tmux_only_get_what_it_passes_on() {
+        let bs = [
+            bind("Ctrl+Shift+Z", "redo", "fish", Layer::Shell),
+            bind("Ctrl+Shift+T", "something", "tmux", Layer::Multiplexer),
+        ];
+        let found = unreachable(&bs, &[ALACRITTY, TMUX], &["fish"]);
+        assert_eq!(found.len(), 2);
+        // fish gets it in Alacritty, but not inside tmux.
+        assert_eq!(found[0].works_in, ["alacritty"]);
+        assert_eq!(found[0].fails_in, ["tmux"]);
+        // tmux itself runs in the terminal, not inside itself.
+        assert_eq!(found[1].fails_in, ["alacritty"]);
+
+        // With extended-keys on, tmux passes it on.
+        let tmux = Terminal {
+            kitty_keyboard: true,
+            ..TMUX
+        };
+        assert!(unreachable(&bs[..1], &[ALACRITTY, tmux], &["fish"]).is_empty());
+    }
+
+    #[test]
+    fn sequences_after_a_key_that_cant_arrive_are_reported_once() {
+        let sequence = |then: &str| Binding {
+            then: vec![then.parse().unwrap()],
+            ..bind("Ctrl+;", then, "tmux", Layer::Multiplexer)
+        };
+        let bs = [
+            bind("Ctrl+;", "prefix key", "tmux", Layer::Multiplexer),
+            sequence("c"),
+            sequence("n"),
+            // The key that can't arrive is the second one, so it's its own.
+            Binding {
+                then: vec!["ctrl+shift+z".parse().unwrap()],
+                ..bind("Ctrl+B", "undo", "tmux", Layer::Multiplexer)
+            },
+            bind("Ctrl+B", "prefix key", "tmux", Layer::Multiplexer),
+        ];
+        let keys: Vec<_> = unreachable(&bs, &[OLD_TERM], &[])
+            .iter()
+            .map(|u| u.binding.keys())
+            .collect();
+        assert_eq!(keys, ["Ctrl+;", "Ctrl+B, Ctrl+Shift+Z"]);
+    }
 
     #[test]
     fn kitty_protocol_needs_the_terminal_and_the_program() {
