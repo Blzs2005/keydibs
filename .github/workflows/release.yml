@@ -1,0 +1,51 @@
+name: Release
+
+# Builds Linux binaries and attaches them to a GitHub release, for
+# `cargo binstall keydibs` and the keydibs-bin AUR package. Runs when a release
+# is published; run it by hand to (re)build the binaries of an existing release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release's tag, like v0.8.0
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+    # The oldest Ubuntu there is, so the binaries also run with older glibc.
+    # keydibs loads everything else (GL, Wayland, X11, libxkbcommon) at runtime.
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      # Named the way cargo-binstall looks for it by default.
+      - name: Package
+        run: |
+          name="keydibs-${{ matrix.target }}-$TAG"
+          mkdir "$name"
+          cp target/release/keydibs LICENSE README.md assets/keydibs.svg "$name/"
+          strip "$name/keydibs"
+          tar -czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - run: gh release upload "$TAG" keydibs-*.tar.gz keydibs-*.tar.gz.sha256 --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

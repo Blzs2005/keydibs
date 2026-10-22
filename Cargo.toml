@@ -7,7 +7,7 @@ description = "Find keyboard shortcuts that clash between your desktop, terminal
 license = "MIT"
 repository = "https://github.com/Blzs2005/keydibs"
 readme = "README.md"
-exclude = [".github", "docs"]
+exclude = [".github", "aur", "docs"]
 keywords = ["keybindings", "shortcuts", "kde", "terminal", "cli"]
 categories = ["command-line-utilities"]
 
@@ -32,3 +32,10 @@ gui = ["dep:eframe", "dep:egui_extras"]
 # egui_kittest needs eframe with a renderer, even in a build without the app.
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "wayland", "x11"] }
 egui_kittest = { version = "0.37.0", features = ["eframe"] }
+
+# `cargo binstall keydibs` downloads the binary a release has attached (see
+# .github/workflows/release.yml) instead of building it.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }-v{ version }{ archive-suffix }"
+bin-dir = "{ name }-{ target }-v{ version }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"

@@ -1,0 +1,54 @@
+# Maintainer: Blzs <81647160+Blzs2005@users.noreply.github.com>
+#
+# The keydibs-bin AUR package: the binaries attached to each GitHub release by
+# .github/workflows/release.yml. For a new release, set pkgver (and pkgrel=1),
+# run `updpkgsums` and `makepkg --printsrcinfo > .SRCINFO`, and push both to
+# ssh://aur@aur.archlinux.org/keydibs-bin.git.
+
+pkgname=keydibs-bin
+pkgver=0.8.0
+pkgrel=1
+pkgdesc='Find keyboard shortcuts that clash between your desktop, terminal, shell and editor'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Blzs2005/keydibs'
+license=('MIT')
+# keydibs loads these at runtime: GL and fonts for the app window, libxkbcommon
+# for keyboard layouts (and the window, on Wayland and X11).
+depends=('gcc-libs' 'glibc' 'libglvnd' 'libxkbcommon' 'fontconfig')
+optdepends=(
+  'wayland: the app window on Wayland'
+  'libx11: the app window on X11'
+  'libxcursor: the app window on X11'
+  'libxi: the app window on X11'
+  'libxkbcommon-x11: the app window on X11'
+)
+provides=('keydibs')
+conflicts=('keydibs')
+# The release binaries are already stripped.
+options=('!debug' '!strip')
+source_x86_64=("$url/releases/download/v$pkgver/keydibs-x86_64-unknown-linux-gnu-v$pkgver.tar.gz")
+source_aarch64=("$url/releases/download/v$pkgver/keydibs-aarch64-unknown-linux-gnu-v$pkgver.tar.gz")
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+package() {
+  cd "keydibs-$CARCH-unknown-linux-gnu-v$pkgver"
+  install -Dm755 keydibs "$pkgdir/usr/bin/keydibs"
+  install -Dm644 keydibs.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/keydibs.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  # The same entry `keydibs install-desktop` writes, so the app is in the
+  # launcher without it.
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/keydibs.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=keydibs
+GenericName=Shortcut Clash Finder
+Comment=Find keyboard shortcuts that clash between your desktop, terminal, shell and editor
+Exec=keydibs gui
+Icon=keydibs
+Terminal=false
+Categories=Utility;
+Keywords=keyboard;shortcuts;keybindings;hotkeys;clash;conflict;
+StartupWMClass=keydibs
+EOF
+}
