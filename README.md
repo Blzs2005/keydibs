@@ -15,13 +15,17 @@ built-in ones nobody wrote down, and shows you which ones clash.
 ## Install
 
 ```sh
-cargo install keydibs
+cargo binstall keydibs
 keydibs install-desktop
 ```
 
+[cargo-binstall](https://github.com/cargo-bins/cargo-binstall) downloads a ready-made
+keydibs in seconds. Without it, `cargo install keydibs` builds keydibs instead, which
+takes a few minutes. Without Rust, download keydibs from the
+[latest release](https://github.com/Blzs2005/keydibs/releases/latest).
+
 The second line adds keydibs to your app launcher, so it opens like any other app.
-`keydibs gui` opens it too. keydibs runs on Linux. If `cargo` isn't found, install
-Rust from [rustup.rs](https://rustup.rs).
+`keydibs gui` opens it too. keydibs runs on Linux.
 
 ## Use
 

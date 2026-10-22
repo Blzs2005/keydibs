@@ -28,8 +28,8 @@ conflicts=('keydibs')
 options=('!debug' '!strip')
 source_x86_64=("$url/releases/download/v$pkgver/keydibs-x86_64-unknown-linux-gnu-v$pkgver.tar.gz")
 source_aarch64=("$url/releases/download/v$pkgver/keydibs-aarch64-unknown-linux-gnu-v$pkgver.tar.gz")
-sha256sums_x86_64=('SKIP')
-sha256sums_aarch64=('SKIP')
+sha256sums_x86_64=('43783de4b3733bfb4578850c15ffb5f83bcfddc41515b57dc90aee30cec2006d')
+sha256sums_aarch64=('6d9837f569ec8b76efb36ef14d0e2ac5ed469dfafe64a7172397e117717ab2ca')
 
 package() {
   cd "keydibs-$CARCH-unknown-linux-gnu-v$pkgver"
