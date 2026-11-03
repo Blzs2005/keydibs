@@ -31,6 +31,18 @@ Rust from [rustup.rs](https://rustup.rs). To skip
 builds keydibs instead, which takes a few minutes. Without Rust, download keydibs from
 the [latest release](https://github.com/Blzs2005/keydibs/releases/latest).
 
+### Updating
+
+When there's a new version, keydibs says so: the app shows an **Update available**
+button in the top right corner, and the command line ends with a note. Click the
+button or run `keydibs update`, and keydibs installs it with `cargo binstall keydibs`
+(or `cargo install keydibs`, without cargo-binstall). If keydibs came from the AUR,
+update it with your AUR helper instead.
+
+To find out, keydibs asks crates.io for keydibs' newest version, at most once a day.
+The request says which keydibs you have and nothing else. `KEYDIBS_NO_UPDATE_CHECK=1`
+turns it off.
+
 ## Use
 
 There's nothing to set up. keydibs finds the tools you have and only **reads** their
@@ -165,6 +177,7 @@ Ctrl+Alt+H
 | `keydibs list` | Lists every shortcut keydibs found |
 | `keydibs gui` | Opens the app |
 | `keydibs install-desktop` | Adds the app to your app launcher. `--remove` takes it out again |
+| `keydibs update` | Installs the newest keydibs |
 
 Key combinations aren't case-sensitive (`ctrl+shift+c` works), and `Meta` and
 `Super` both mean the Windows/logo key. For just the command line, without the app:

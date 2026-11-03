@@ -7,6 +7,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{Queryable, by};
 use keydibs::reach::Terminal;
 use keydibs::scan::Tool;
+use keydibs::update::Plan;
 use keydibs::{Binding, Layer};
 
 use super::*;
@@ -132,4 +133,70 @@ fn all_shortcuts_can_be_filtered_by_tool() {
         .click();
     app.run();
     app.get(by().label("1 shortcut"));
+}
+
+/// The app with keydibs 9.9.9 out, updating it with `plan`.
+fn app_with_update(name: &str, plan: Plan) -> Harness<'static, App> {
+    let mut app = app(temp_dir(name).join("ignore"));
+    let state = app.state_mut();
+    state.updating = Updating::Available("9.9.9".parse().unwrap());
+    state.update_plan = plan;
+    app.run();
+    app
+}
+
+/// Steps the app until a label containing `text` shows up, while a background
+/// thread finishes.
+fn wait_for(app: &mut Harness<'static, App>, text: &str) {
+    for _ in 0..400 {
+        app.step();
+        if app.query_all_by_label_contains(text).next().is_some() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    panic!("“{text}” never showed up");
+}
+
+#[test]
+fn there_is_no_update_button_without_a_newer_version() {
+    let app = app(temp_dir("no-update").join("ignore"));
+    assert!(app.query_by_label_contains("Update available").is_none());
+}
+
+#[test]
+fn the_update_button_installs_the_newer_version() {
+    let plan = Plan::Run(keydibs::update::Run::new("sh", &["-c", "sleep 0.3"]));
+    let mut app = app_with_update("update", plan);
+    app.get(by().label("Update available (9.9.9)")).click();
+    // The spinner keeps asking for frames, so `run` would never settle.
+    app.run_steps(2);
+    app.get(by().label("Updating…"));
+    app.get(by().label("Running sh -c sleep 0.3…"));
+
+    wait_for(&mut app, "Updated to keydibs 9.9.9");
+    app.get(by().label("Restart keydibs"));
+    app.get(by().label("Updated to keydibs 9.9.9. Restart keydibs to use it."));
+    assert!(app.query_by_label_contains("Update available").is_none());
+}
+
+#[test]
+fn a_failed_update_says_why_and_can_be_tried_again() {
+    let fails = "echo 'error: no network' >&2; exit 1";
+    let plan = Plan::Run(keydibs::update::Run::new("sh", &["-c", fails]));
+    let mut app = app_with_update("update-fails", plan);
+    app.get(by().label("Update available (9.9.9)")).click();
+    wait_for(&mut app, "Updating failed: error: no network");
+    app.get(by().label("Update available (9.9.9)"));
+    assert!(app.query_by_label("Restart keydibs").is_none());
+}
+
+#[test]
+fn an_update_keydibs_cant_install_explains_how() {
+    let plan = Plan::Explain("update it with your package manager".into());
+    let mut app = app_with_update("update-explain", plan);
+    app.get(by().label("Update available (9.9.9)")).click();
+    app.run();
+    app.get(by().label("update it with your package manager"));
+    app.get(by().label("Update available (9.9.9)"));
 }

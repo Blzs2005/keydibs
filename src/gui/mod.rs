@@ -2,7 +2,8 @@
 //!
 //! Scanning runs adapters that can take seconds (they start shells and
 //! editors), so it happens on a background thread while the window shows what
-//! it has read so far. The app only writes to the ignore list.
+//! it has read so far. The app only writes to the ignore list, and installs a
+//! newer keydibs when you click Update available.
 
 mod clashes;
 mod lookup;
@@ -21,6 +22,7 @@ use keydibs::ignore::{self, Rule};
 use keydibs::layout::Layout;
 use keydibs::report::{self, Finding, tilde};
 use keydibs::scan::{self, Event, Found};
+use keydibs::update::{self, Plan, Version};
 use keydibs::{Chord, Source};
 
 pub fn run() -> ExitCode {
@@ -147,6 +149,23 @@ pub(crate) enum Action {
     Open(PathBuf),
     FilterTool(Option<&'static str>),
     Rescan,
+    /// Install the newer keydibs.
+    Update,
+    /// Open the newly installed keydibs and close this one.
+    Restart,
+}
+
+/// Whether there's a newer keydibs, and installing it.
+pub(crate) enum Updating {
+    /// Nothing to offer, or still asking crates.io (while there's a receiver).
+    Idle(Option<Receiver<Option<Version>>>),
+    Available(Version),
+    Installing {
+        version: Version,
+        done: Receiver<Result<(), String>>,
+    },
+    /// Installed; the new version runs from the next start.
+    Installed,
 }
 
 /// A message at the bottom of the window.
@@ -165,11 +184,23 @@ struct App {
     shortcuts: shortcuts::State,
     status: Option<Status>,
     text_files: HashMap<PathBuf, bool>,
+    updating: Updating,
+    /// How to update this keydibs.
+    update_plan: Plan,
+    /// This keydibs, to start again once it's updated. Read at startup: once
+    /// the file is replaced, `/proc/self/exe` points at the deleted one.
+    exe: Option<PathBuf>,
 }
 
 impl App {
     fn new(ctx: &egui::Context) -> Self {
-        Self::with_scan(ctx, start_scan(ctx))
+        let mut app = Self::with_scan(ctx, start_scan(ctx));
+        let ctx = ctx.clone();
+        let check = update::check_in_background(std::time::Duration::from_secs(10), move || {
+            ctx.request_repaint()
+        });
+        app.updating = Updating::Idle(Some(check));
+        app
     }
 
     fn with_scan(ctx: &egui::Context, scan: Scan) -> Self {
@@ -196,6 +227,70 @@ impl App {
             shortcuts: shortcuts::State::default(),
             status: None,
             text_files: HashMap::new(),
+            updating: Updating::Idle(None),
+            update_plan: Plan::detect(),
+            exe: std::env::current_exe().ok(),
+        }
+    }
+
+    /// Takes in the answer from crates.io, or from installing the update.
+    fn poll_update(&mut self) {
+        match &self.updating {
+            Updating::Idle(Some(check)) => match check.try_recv() {
+                Ok(Some(version)) => self.updating = Updating::Available(version),
+                Ok(None) | Err(TryRecvError::Disconnected) => self.updating = Updating::Idle(None),
+                Err(TryRecvError::Empty) => {}
+            },
+            Updating::Installing { version, done } => {
+                let version = *version;
+                let failed = match done.try_recv() {
+                    Ok(Ok(())) => {
+                        self.status = info(format!(
+                            "Updated to keydibs {version}. Restart keydibs to use it."
+                        ));
+                        self.updating = Updating::Installed;
+                        return;
+                    }
+                    Ok(Err(e)) => e,
+                    Err(TryRecvError::Disconnected) => "it stopped without saying why".to_string(),
+                    Err(TryRecvError::Empty) => return,
+                };
+                self.status = error(format!("Updating failed: {failed}"));
+                self.updating = Updating::Available(version);
+            }
+            Updating::Idle(None) | Updating::Available(_) | Updating::Installed => {}
+        }
+    }
+
+    fn start_update(&mut self, ctx: &egui::Context) {
+        let Updating::Available(version) = self.updating else {
+            return;
+        };
+        let run = match &self.update_plan {
+            Plan::Run(run) => run.clone(),
+            Plan::Explain(how) => {
+                self.status = info(how.clone());
+                return;
+            }
+        };
+        self.status = info(format!("Running {run}…"));
+        let (send, done) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = send.send(run.run_quietly());
+            ctx.request_repaint();
+        });
+        self.updating = Updating::Installing { version, done };
+    }
+
+    fn restart(&mut self, ctx: &egui::Context) {
+        let Some(exe) = &self.exe else {
+            self.status = error("can't find keydibs to start it again; open it yourself");
+            return;
+        };
+        match Command::new(exe).arg("gui").spawn() {
+            Ok(_) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            Err(e) => self.status = error(format!("can't start {}: {e}", tilde(exe))),
         }
     }
 
@@ -223,10 +318,15 @@ impl App {
     }
 
     fn apply(&mut self, ctx: &egui::Context, action: Action) {
-        if let Action::Rescan = action {
-            self.scan = start_scan(ctx);
-            self.status = None;
-            return;
+        match action {
+            Action::Rescan => {
+                self.scan = start_scan(ctx);
+                self.status = None;
+                return;
+            }
+            Action::Update => return self.start_update(ctx),
+            Action::Restart => return self.restart(ctx),
+            _ => {}
         }
         let Scan::Done(scanned) = &mut self.scan else {
             return;
@@ -263,7 +363,7 @@ impl App {
                 }
             }
             Action::FilterTool(tool) => self.tool = tool,
-            Action::Rescan => unreachable!("handled above"),
+            Action::Rescan | Action::Update | Action::Restart => unreachable!("handled above"),
         }
     }
 }
@@ -285,6 +385,7 @@ fn error(text: impl Into<String>) -> Option<Status> {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_scan();
+        self.poll_update();
 
         let mut actions = Vec::new();
         let App {
@@ -296,6 +397,9 @@ impl eframe::App for App {
             shortcuts,
             status,
             text_files,
+            updating,
+            update_plan,
+            exe: _,
         } = self;
         let scan = &*scan;
         let scanned = match scan {
@@ -309,7 +413,7 @@ impl eframe::App for App {
 
         egui::Panel::top("tabs").show(ui, |ui| {
             ui.add_space(4.0);
-            top_bar(ui, tab, count, &mut actions);
+            top_bar(ui, tab, count, updating, update_plan, &mut actions);
             ui.add_space(2.0);
         });
         status_bar(ui, status);
@@ -347,9 +451,16 @@ impl eframe::App for App {
     }
 }
 
-/// The app's name, its tabs, and the button to scan again. `clashes` is
-/// `None` while scanning.
-fn top_bar(ui: &mut egui::Ui, tab: &mut Tab, clashes: Option<usize>, actions: &mut Vec<Action>) {
+/// The app's name, its tabs, the button to scan again, and the one to update
+/// keydibs when there's a newer version. `clashes` is `None` while scanning.
+fn top_bar(
+    ui: &mut egui::Ui,
+    tab: &mut Tab,
+    clashes: Option<usize>,
+    updating: &Updating,
+    plan: &Plan,
+    actions: &mut Vec<Action>,
+) {
     ui.horizontal(|ui| {
         ui.heading(RichText::new("keydibs").strong());
         ui.add_space(12.0);
@@ -361,6 +472,7 @@ fn top_bar(ui: &mut egui::Ui, tab: &mut Tab, clashes: Option<usize>, actions: &m
         ui.selectable_value(tab, Tab::Lookup, "Look up a key");
         ui.selectable_value(tab, Tab::Shortcuts, "All shortcuts");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            update_button(ui, updating, plan, actions);
             let rescan = ui
                 .add_enabled(clashes.is_some(), egui::Button::new("Scan again"))
                 .on_hover_text("Read every tool's shortcuts again, after you change one");
@@ -369,6 +481,42 @@ fn top_bar(ui: &mut egui::Ui, tab: &mut Tab, clashes: Option<usize>, actions: &m
             }
         });
     });
+}
+
+/// In the top right corner, once there's a newer keydibs.
+fn update_button(ui: &mut egui::Ui, updating: &Updating, plan: &Plan, actions: &mut Vec<Action>) {
+    match updating {
+        Updating::Idle(_) => {}
+        Updating::Available(version) => {
+            let how = match plan {
+                Plan::Run(run) => format!("Click to install it with {run}"),
+                Plan::Explain(_) => "Click to see how to install it".to_string(),
+            };
+            // The blue of the icon, which reads the same in light and dark mode.
+            let text = RichText::new(format!("Update available ({version})")).color(Color32::WHITE);
+            let button = egui::Button::new(text).fill(Color32::from_rgb(0x3b, 0x5b, 0xdb));
+            let hover = format!(
+                "keydibs {version} is out; you have {}.\n{how}",
+                update::CURRENT
+            );
+            if ui.add(button).on_hover_text(hover).clicked() {
+                actions.push(Action::Update);
+            }
+        }
+        Updating::Installing { .. } => {
+            ui.add_enabled(false, egui::Button::new("Updating…"));
+            ui.spinner();
+        }
+        Updating::Installed => {
+            if ui
+                .button("Restart keydibs")
+                .on_hover_text("Close this window and open the new version")
+                .clicked()
+            {
+                actions.push(Action::Restart);
+            }
+        }
+    }
 }
 
 fn status_bar(ui: &mut egui::Ui, status: &mut Option<Status>) {

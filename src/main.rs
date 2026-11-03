@@ -1,4 +1,6 @@
+use std::io::IsTerminal;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use keydibs::conflict::{self, Conflict};
@@ -6,6 +8,7 @@ use keydibs::ignore;
 use keydibs::layout::Layout;
 use keydibs::report::{self, Finding, Problem, source, tilde};
 use keydibs::scan::{self, Event, Found};
+use keydibs::update::{self, Plan};
 use keydibs::{Binding, Chord};
 
 // Output carries text from config files (actions, key names, paths), so it goes
@@ -59,6 +62,8 @@ enum Command {
         #[arg(long)]
         remove: bool,
     },
+    /// Install the newest keydibs, with cargo binstall if you installed it with cargo
+    Update,
 }
 
 fn main() -> ExitCode {
@@ -70,6 +75,14 @@ fn main() -> ExitCode {
         Command::InstallDesktop { remove } => return desktop::install(remove),
         _ => {}
     }
+    if let Command::Update = command {
+        return update_keydibs();
+    }
+    // Asks crates.io for the newest version while the scan runs. Only when
+    // someone is watching: scripts and pipes don't get the notice.
+    let newer = std::io::stderr()
+        .is_terminal()
+        .then(|| update::check_in_background(Duration::from_secs(3), || {}));
 
     let mut found = scan::load(|event| match event {
         Event::Scanned(tool) => {
@@ -107,7 +120,7 @@ fn main() -> ExitCode {
     };
     eprintln!();
 
-    match command {
+    let code = match command {
         Command::Check { .. } => check(&found, ignore.as_ref()),
         Command::Why { chord } => {
             let chord = match &layout {
@@ -123,6 +136,38 @@ fn main() -> ExitCode {
         }
         #[cfg(feature = "gui")]
         Command::Gui | Command::InstallDesktop { .. } => unreachable!("handled above"),
+        Command::Update => unreachable!("handled above"),
+    };
+    // Usually the check is done by now; if crates.io is slow, don't wait long.
+    if let Some(newer) = newer
+        && let Ok(Some(version)) = newer.recv_timeout(Duration::from_secs(2))
+    {
+        eprintln!();
+        eprintln!("{}", update::notice(version));
+    }
+    code
+}
+
+/// `keydibs update`: installs the newest version the way this one was installed.
+fn update_keydibs() -> ExitCode {
+    let run = match Plan::detect() {
+        Plan::Run(run) => run,
+        Plan::Explain(how) => {
+            eprintln!("{how}");
+            return ExitCode::FAILURE;
+        }
+    };
+    eprintln!("running {run}");
+    match run.command().status() {
+        Ok(status) if status.success() => ExitCode::SUCCESS,
+        Ok(status) => {
+            eprintln!("error: {run} failed ({status})");
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("error: can't run {run}: {e}");
+            ExitCode::FAILURE
+        }
     }
 }
 
