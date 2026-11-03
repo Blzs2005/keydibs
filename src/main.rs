@@ -8,6 +8,17 @@ use keydibs::report::{self, Finding, Problem, source, tilde};
 use keydibs::scan::{self, Event, Found};
 use keydibs::{Binding, Chord};
 
+// Output carries text from config files (actions, key names, paths), so it goes
+// through `printable` to keep escape sequences in them from reaching the terminal.
+macro_rules! println {
+    () => { std::println!() };
+    ($($arg:tt)*) => { std::println!("{}", keydibs::report::printable(&format!($($arg)*))) };
+}
+macro_rules! eprintln {
+    () => { std::eprintln!() };
+    ($($arg:tt)*) => { std::eprintln!("{}", keydibs::report::printable(&format!($($arg)*))) };
+}
+
 #[cfg(feature = "gui")]
 mod desktop;
 #[cfg(feature = "gui")]

@@ -132,6 +132,23 @@ pub fn tilde(path: &Path) -> String {
     path.display().to_string()
 }
 
+/// `text` made safe to print to a terminal: control characters (ESC and the
+/// like) and bidi overrides are shown as `\u{1b}` instead of being sent raw, so
+/// a config file can't recolor, retitle or rewrite the terminal, or set its
+/// clipboard. Newlines and tabs pass through.
+pub fn printable(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        let bidi = matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
+        if (c.is_control() && c != '\n' && c != '\t') || bidi {
+            out.push_str(&format!("\\u{{{:x}}}", c as u32));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,5 +193,17 @@ mod tests {
         assert!(matches!(findings[1].problem, Problem::Unreachable(_)));
         assert_eq!(findings[1].problem.binding().action, "SaveAll");
         assert!(!findings[1].is_ignored());
+    }
+
+    #[test]
+    fn printable_escapes_terminal_control_sequences() {
+        assert_eq!(printable("SaveAll"), "SaveAll");
+        assert_eq!(printable("a\nb\tc"), "a\nb\tc");
+        assert_eq!(
+            printable("\x1b]52;c;aGk=\x07spawn"),
+            "\\u{1b}]52;c;aGk=\\u{7}spawn"
+        );
+        assert_eq!(printable("\x1b[2J\r\u{9b}"), "\\u{1b}[2J\\u{d}\\u{9b}");
+        assert_eq!(printable("ab\u{202e}cd"), "ab\\u{202e}cd");
     }
 }
